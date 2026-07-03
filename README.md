@@ -8,7 +8,7 @@ A production-grade implementation of **Continuous Legal Memory** based on the **
 
 ---
 
-## 1. Executive Summary
+## 1. Strategic Overview
 
 Traditional LLMs suffer from **catastrophic forgetting** when fine-tuned on new guidelines and fail to handle **precedence conflicts** (e.g., when a new anti-fraud rule overrides a customer's right-to-be-forgotten) using standard linear similarity search or flat attention.
 
