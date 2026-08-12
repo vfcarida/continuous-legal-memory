@@ -1,129 +1,154 @@
-# Continuous Legal Memory via Nested Learning (Titans/HOPE Paradigm)
+# Continuous Legal Memory Engine
 
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg)](https://pytorch.org/)
-[![Transformers](https://img.shields.io/badge/Transformers-HF-green.svg)](https://huggingface.co/)
+[![CI & MLOps Pipeline](https://github.com/vfcarida/continuous-legal-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/vfcarida/continuous-legal-memory/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![Architecture](https://img.shields.io/badge/architecture-Hexagonal%20Ports%20%26%20Adapters-green.svg)](#architecture)
+[![Compliance](https://img.shields.io/badge/compliance-EU%20AI%20Act%20%7C%20GDPR%20Art.%2017-orange.svg)](#compliance--auditability)
 
-A production-grade implementation of **Continuous Legal Memory** based on the **Nested Learning** paradigm presented in NeurIPS 2025 (inspired by the Titans architecture). It allows LLM-based systems to dynamically inject, update, and override regulatory rules at inference time with **zero backpropagation** through the base model, eliminating catastrophic forgetting.
-
----
-
-## 1. Strategic Overview
-
-Traditional LLMs suffer from **catastrophic forgetting** when fine-tuned on new guidelines and fail to handle **precedence conflicts** (e.g., when a new anti-fraud rule overrides a customer's right-to-be-forgotten) using standard linear similarity search or flat attention.
-
-This project implements a **Continuum Memory System (CMS)** featuring **MemoryMLPs** updated via dual-timescale (fast/slow) nested optimization loops. 
-
-### Key Innovations:
-1. **Surprise-Gated Local Adaptation**: Captures conflict severity by measuring prediction deviation in the consolidated memory. Surprising rules (conflicting regulations) trigger higher learning rates and epoch adjustments.
-2. **Surprise-Weighted Memory Replay**: Weights the loss terms in the inner optimization loop using rule importance, giving overriding regulations a stronger gradient pull and forcing the memory network to prioritize them.
-3. **Dual-Timescale Parameter Consolidation**: Employs a Fast Loop (Short-term context) optimized at inference time and a Slow Loop (Long-term consolidation) updated via Exponential Moving Average (EMA).
-4. **Hybrid Gated Routing**: Merges direct episodic retrieval with non-linear active predictions using a semantic gating mechanism.
+A production-ready enterprise cognitive memory framework for persistent LLM legal agents. Features zero-backpropagation online rule ingestion via dual-timescale associative neural adaptation (`ContinuousMemory` + `HopeModule`), multi-tier memory structures (Working, Episodic, Semantic Knowledge Graph), offline-first privacy protection, LegalBench-RAG precision retrieval, cryptographic attestation under the EU AI Act, and DeepEval/Ragas LLMOps evaluation suites.
 
 ---
 
-## 2. Architecture Overview
-
-The system routes user queries and regulatory rules through a frozen base encoder (BERT) and directs the representations to the dual-timescale memory system.
+## Technical Architecture Overview
 
 ```mermaid
 graph TD
-    %% Define Nodes
-    InputText["Input Query / Regulatory Text"] --> Encoder["Frozen Base Encoder (BERT)"]
-    Encoder --> KeyEmbed["Key Embedding (k)"]
-    
-    subgraph CMS["Continuum Memory System (CMS)"]
-        direction TB
-        KeyEmbed --> FastMLP["Fast Memory MLP (f_θ_fast)"]
-        KeyEmbed --> SlowMLP["Slow Memory MLP (f_θ_slow)"]
-        
-        %% Update Path
-        TargetAction["Target Action (v)"] -.-> SurpriseCalc["Surprise Evaluator"]
-        SlowMLP -.-> SurpriseCalc
-        SurpriseCalc -->|"Surprise Score (S_t)"| SurpriseWeight["Surprise-Weighted Loss Builder"]
-        
-        %% Inner Loop Optimization
-        SurpriseWeight -->|"Inner Loop Adam Optimization"| FastMLP
-        
-        %% Outer Loop Consolidation
-        FastMLP -->|"Consolidation (EMA - τ)"| SlowMLP
+    subgraph "Hexagonal Application Orchestrator"
+        A[LegalMemoryOrchestrator]
     end
-    
-    %% Inference Path
-    FastMLP -->|"v_fast"| RoutingGate["Gated Decision Router"]
-    SlowMLP -->|"v_slow"| RoutingGate
-    
-    %% Direct Episodic Retrieve
-    KeyEmbed -->|"Episodic Similarity"| AttentionSoftmax["Surprise-Weighted Attention"]
-    AttentionSoftmax -->|"v_retrieved"| RoutingGate
-    
-    RoutingGate -->|"v_pred = 0.4 * v_retrieved + 0.6 * (g * v_fast + (1-g) * v_slow)"| FinalAction["Final Predicted Decision"]
+
+    subgraph "Ports & Adapters"
+        B[BaseEncoderPort] --> C[HuggingFaceEncoderAdapter]
+        B --> D[OllamaGemmaAdapter - Offline Edge]
+    end
+
+    subgraph "Multi-Tier Cognitive Memory System"
+        E[Working Memory Cache]
+        F[Episodic Ledger - Cryptographic SHA-256]
+        G[Semantic Knowledge Graph - Entity-Typed]
+    end
+
+    subgraph "Neural Continuum Memory Core"
+        H[Hope Module - Attention & Dynamic Routing] --> I[Fast Network - Short-term Adaptation]
+        H --> J[Slow Network - Long-term EMA Consolidation]
+    end
+
+    subgraph "Security & MLOps Governance"
+        K[Cryptographic Attestation Module - SHA-256 / RSA]
+        L[Hybrid Legal Retriever - BM25 + Dense + Snippets]
+        M[Agentic LLMOps Evaluator - DeepEval / Ragas Metrics]
+    end
+
+    A --> B
+    A --> E
+    A --> F
+    A --> G
+    A --> H
+    A --> K
+    A --> L
 ```
 
 ---
 
-## 3. Mathematical Formulation
+## Key Features
 
-### A. Surprise Signal & Rule Importance
-When a new regulatory rule $(k_t, v_t)$ is injected, the system evaluates the **prediction surprise** of the consolidated slow network:
-$$S_t = \frac{1}{2} \|f_{\theta_{\text{slow}}}(k_t) - v_t\|_2^2$$
+### 1. Hexagonal Ports & Adapters (SOLID Architecture)
+- **Decoupled Infrastructure**: Core neural memory networks and legal domain logic are isolated from underlying transformer frameworks, vector databases, and API runtimes.
+- **Bespoke Exception Hierarchy**: Domain errors (`ContextWindowExceededError`, `MemoryContradictionError`, `TemporalInvalidationError`, `EncoderInferenceError`, `InvalidMemoryVectorError`) enable resilience workflows.
 
-This surprise dictates the rule's importance weight ($I_t$), boosting conflicting or new regulations:
-$$I_t = 1.0 + 3.0 \cdot S_t$$
+### 2. Multi-Tier Cognitive Memory System
+- **Working Memory**: Sliding-window context cache for active legal session turn tracking.
+- **Episodic Memory**: Timestamp-backed chronological ledger of immutable legal interactions with SHA-256 hash chaining.
+- **Semantic Knowledge Graph**: Entity-typed network (`STATUTE`, `CLAUSE`, `CLIENT_PREFERENCE`) mapping prerequisite dependencies (`DEPENDS_ON`) and logical contradictions (`CONTRADICTS`).
 
-### B. Inner Optimization Loop (Fast Loop)
-The active weights of the fast network ($\theta_{\text{fast}}$) are optimized over $N$ epochs to minimize the objective function:
-$$\mathcal{L}(\theta_{\text{fast}}) = I_t \|f_{\theta_{\text{fast}}}(k_t) - v_t\|_2^2 + 0.7 \sum_{i < t} I_i \|f_{\theta_{\text{fast}}}(k_i) - v_i\|_2^2 + 0.15 \|\theta_{\text{fast}} - \theta_{\text{slow}}\|_2^2$$
+### 3. GDPR Art. 17 & Temporal Compliance
+- **Non-Destructive Invalidation**: Updating statutes or client preferences does not execute hard database `DELETE` operations. Instead, records set `valid_to` timestamps and reduce `decay_factor` to `0.0`, preserving an immutable audit log.
+- **Temporal Validity Verification**: Automatic timestamp verification guards against stale or expired legal precedents.
 
-Where:
-* **Term 1**: Direct adaptation to the newly injected rule (scaled by rule importance).
-* **Term 2**: Experience replay on previous rules to safeguard foundational knowledge.
-* **Term 3**: Proximal regularization constraining the fast network near the slow network.
+### 4. Offline-First Privacy Protection
+- **Strict Privacy Mode**: Enforces on-device processing via `OllamaGemmaAdapter` (`http://localhost:11434`), blocking remote endpoints to prevent cloud telemetry and data leakage under attorney-client privilege.
 
-### C. Outer Optimization Loop (Slow Loop Consolidation)
-Following fast adaptation, parameters consolidate into the long-term slow network ($\theta_{\text{slow}}$) via Exponential Moving Average (EMA):
-$$\theta_{\text{slow}} \leftarrow \theta_{\text{slow}} + \tau_{\text{consolidation}} (\theta_{\text{fast}} - \theta_{\text{slow}})$$
+### 5. Precision Hybrid Retrieval & Cryptographic Attestation
+- **BM25 + Dense Hybrid Engine**: Combines exact keyword matching with dense vector embeddings and character-level index extraction (`start_char`, `end_char`) to eliminate context bloat (LegalBench-RAG standard).
+- **EU AI Act Attestation**: Generates SHA-256 state digests and RSA digital signatures for retrieved memory context states to guarantee auditability for high-risk AI systems.
 
-### D. Hybrid Gated Routing Inference
-For a query $q$, the attention weights are scaled by rule importance:
-$$\text{scaled\_scores}_i = \text{cosine\_similarity}(q, k_i) \cdot I_i$$
-$$a_i = \text{Softmax}\left(\frac{\text{scaled\_scores}_i}{\text{temperature}}\right)$$
-$$v_{\text{retrieved}} = \sum_{i} a_i v_i$$
-
-A dynamic routing gate $g$ routes predictions based on maximum similarity:
-$$g = \text{Clamp}\left(\frac{\max_i(\text{similarity}(q, k_i)) - 0.2}{0.6}, 0, 1\right)$$
-$$v_{\text{net}} = g \cdot f_{\theta_{\text{fast}}}(q) + (1 - g) \cdot f_{\theta_{\text{slow}}}(q)$$
-
-The final decision is generated by combining episodic retrieval with active neural memory predictions:
-$$v_{\text{pred}} = 0.4 \cdot v_{\text{retrieved}} + 0.6 \cdot v_{\text{net}}$$
+### 6. LLMOps Agentic Evaluation
+- Evaluates **Context Precision**, **Plan Adherence**, and **Cross-Session Recall** via integrated DeepEval/Ragas metric frameworks.
 
 ---
 
-## 4. Installation & Setup
+## Installation & Setup
 
-### Prerequisites
-* Python 3.10+
-* PyTorch 2.0+
-* Hugging Face Transformers
-
-### Install Dependencies
 ```bash
-pip install torch transformers huggingface-hub
-```
+# Clone the repository
+git clone https://github.com/vfcarida/continuous-legal-memory.git
+cd continuous-legal-memory
 
-### Run Demonstration Proof of Concept
-Run the script to observe the decision flip from `EXCLUIR` to `RETER` when the overriding anti-fraud guideline is injected:
-```bash
-python poc_continuous_memory.py
+# Basic installation
+pip install -e .
+
+# Developer & MLOps full installation
+pip install -e .[dev,mlops]
 ```
 
 ---
 
-## 5. Automated Verification
+## Quickstart Example
 
-The project includes a robust integration and unit test suite targeting edge cases, parameter freezing, input validation, surprise tracking dynamics, and catastrophic forgetting prevention.
+```python
+from continuous_legal_memory.orchestrator import LegalMemoryOrchestrator
+from continuous_legal_memory.security.attestation import CryptographicAttestationModule
 
-### Run Tests
-```bash
-python -m unittest test_continuous_memory.py
+# Initialize the Legal Memory Orchestrator
+orchestrator = LegalMemoryOrchestrator(value_dim=2)
+
+ACTION_DELETE = [1.0, 0.0]
+ACTION_RETAIN = [0.0, 1.0]
+
+# 1. Ingest baseline privacy legislation into active memory
+orchestrator.update_memory(
+    rule_text="Article 1: Every client has the right to request deletion of personal data.",
+    action_vector=ACTION_DELETE,
+)
+
+# 2. Ingest overriding anti-fraud directive without fine-tuning or backprop
+orchestrator.update_memory(
+    rule_text="New Directive: Deletion of credit operation records active in last 5 years is strictly prohibited.",
+    action_vector=ACTION_RETAIN,
+)
+
+# 3. Query the model on a specific scenario
+query = "Client John paid off a loan last month and demands deletion of his financial credit history."
+result = orchestrator.predict(query)
+
+print(f"Query: {result.query}")
+print(f"Top Rule: {result.most_relevant_rule}")
+print(f"Action Vector (Delete, Retain): {result.predicted_action_vector}")
+
+# 4. Generate cryptographically signed audit attestation under EU AI Act
+attestor = CryptographicAttestationModule()
+token = attestor.sign_attestation(result)
+print(f"Audit State SHA-256 Hash: {token.state_hash}")
+print(f"RSA Signature: {token.signature[:32]}...")
 ```
+
+---
+
+## Verification & Testing
+
+Run the full automated unit test suite and lint checks:
+
+```bash
+# Run Pytest suite
+pytest tests/unit -v
+
+# Run Ruff linter checks
+ruff check continuous_legal_memory tests
+```
+
+---
+
+## Author & License
+
+Developed by **Vinicius Caridá** ([vfcarida@gmail.com](mailto:vfcarida@gmail.com)).  
+Released under the MIT License.
