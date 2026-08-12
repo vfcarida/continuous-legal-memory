@@ -2,14 +2,45 @@
 Core Domain Models and Value Objects for Continuous Legal Memory.
 
 This module defines immutable value objects and dataclasses representing legal memory items,
-prediction outputs, and metadata necessary for temporal tracking, attestation, and neural memory routing.
+semantic knowledge graph nodes, multi-tier memory structures, and prediction outputs.
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 
 import torch
+
+
+class MemoryTier(str, Enum):
+    """Enumeration of cognitive memory system tiers."""
+
+    WORKING = "working"
+    EPISODIC = "episodic"
+    SEMANTIC = "semantic"
+
+
+class EntityType(str, Enum):
+    """Categorization of legal entities in the Semantic Knowledge Graph."""
+
+    STATUTE = "statute"
+    CLAUSE = "clause"
+    CLIENT_PREFERENCE = "client_preference"
+    CASE_PRECEDENT = "case_precedent"
+    OBLIGATION = "obligation"
+    PROHIBITION = "prohibition"
+    PERMISSION = "permission"
+
+
+class RelationType(str, Enum):
+    """Types of semantic relationships between legal memory nodes."""
+
+    SUPERSEDES = "supersedes"
+    DERIVES_FROM = "derives_from"
+    CONTRADICTS = "contradicts"
+    DEPENDS_ON = "depends_on"
+    APPLIES_TO = "applies_to"
 
 
 @dataclass
@@ -23,6 +54,7 @@ class MemoryRecord:
         value_vector: Action/decision output target vector mapping to legal decisions.
         importance_score: Dynamic surprise-weighted importance factor for override precedence.
         record_id: Unique string identifier for indexing and cryptographic auditing.
+        tier: Cognitive memory tier (WORKING, EPISODIC, SEMANTIC).
         valid_from: Datetime timestamp marking the start of temporal validity.
         valid_to: Optional datetime timestamp marking when the rule expires or is invalidated.
         metadata: Arbitrary key-value store for compliance tags (e.g., GDPR Art. 17 audit trails).
@@ -33,6 +65,7 @@ class MemoryRecord:
     value_vector: torch.Tensor
     importance_score: float = 1.0
     record_id: str | None = None
+    tier: MemoryTier = MemoryTier.EPISODIC
     valid_from: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     valid_to: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -45,12 +78,56 @@ class MemoryRecord:
             at_time: The timestamp to evaluate validity against. Defaults to current UTC time.
 
         Returns:
-            True if the record is currently valid; False if it has expired.
+            True if the record is currently valid; False if it has expired or been invalidated.
         """
         check_time = at_time or datetime.now(timezone.utc)
         if check_time < self.valid_from:
             return False
         return not (self.valid_to is not None and check_time > self.valid_to)
+
+
+@dataclass
+class GraphNode:
+    """
+    Represents an entity node in the Semantic Knowledge Graph.
+
+    Attributes:
+        node_id: Unique identifier for the entity node.
+        entity_type: Legal entity type (STATUTE, CLAUSE, PREFERENCE, etc.).
+        label: Human-readable entity name or title.
+        description: Detailed content or legal rule description.
+        embedding: Vector representation of the entity.
+        valid_from: Temporal start timestamp.
+        valid_to: Temporal invalidation/expiry timestamp.
+        decay_factor: Decay-driven activation weight (1.0 = active, 0.0 = completely decayed).
+    """
+
+    node_id: str
+    entity_type: EntityType
+    label: str
+    description: str
+    embedding: torch.Tensor | None = None
+    valid_from: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    valid_to: datetime | None = None
+    decay_factor: float = 1.0
+
+
+@dataclass
+class GraphEdge:
+    """
+    Represents a directed relationship between two entity nodes in the Semantic Knowledge Graph.
+
+    Attributes:
+        source_id: Originating node ID.
+        target_id: Destination node ID.
+        relation_type: Relationship type (SUPERSEDES, CONTRADICTS, DEPENDS_ON, etc.).
+        weight: Strength or precedence coefficient of the relationship edge.
+    """
+
+    source_id: str
+    target_id: str
+    relation_type: RelationType
+    weight: float = 1.0
 
 
 @dataclass
@@ -66,6 +143,7 @@ class PredictionResult:
         fast_slow_gate: Dynamic gating coefficient routing emphasis between short-term fast adaptation
                         and long-term slow consolidation networks.
         attention_weights: Full list of attention weights across all stored memory records.
+        source_tier: Primary memory tier from which the result was synthesized.
     """
 
     query: str
@@ -74,3 +152,4 @@ class PredictionResult:
     confidence: float | None = None
     fast_slow_gate: float | None = None
     attention_weights: list[float] | None = None
+    source_tier: MemoryTier | None = None
