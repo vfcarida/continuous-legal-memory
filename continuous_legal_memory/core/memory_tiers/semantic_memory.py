@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import torch
 
 from continuous_legal_memory.domain.exceptions import (
+    MemoryContradictionError,
     TemporalInvalidationError,
 )
 from continuous_legal_memory.domain.models import EntityType, GraphEdge, GraphNode, RelationType
@@ -92,6 +93,16 @@ class SemanticKnowledgeGraph:
             raise KeyError(f"Source node '{source_id}' not found in knowledge graph.")
         if target_id not in self.nodes:
             raise KeyError(f"Target node '{target_id}' not found in knowledge graph.")
+
+        # Check contradiction constraints: cannot link nodes already marked as contradictory
+        if relation_type != RelationType.CONTRADICTS:
+            contradicting_ids = {c.node_id for c in self.find_contradictions(source_id)}
+            if target_id in contradicting_ids:
+                raise MemoryContradictionError(
+                    f"Cannot link '{source_id}' to '{target_id}' with relation '{relation_type}': "
+                    "nodes are already marked as contradictory.",
+                    payload={"source_id": source_id, "target_id": target_id, "relation_type": relation_type},
+                )
 
         edge = GraphEdge(source_id=source_id, target_id=target_id, relation_type=relation_type, weight=weight)
         self.edges.append(edge)
@@ -181,3 +192,35 @@ class SemanticKnowledgeGraph:
                 elif edge.target_id == node_id and edge.source_id in self.nodes:
                     contradictions.append(self.nodes[edge.source_id])
         return contradictions
+
+    def remove_node(self, node_id: str) -> None:
+        """
+        Permanently remove an entity node and all incident edges from the knowledge graph.
+
+        Args:
+            node_id: Identifier of node to delete.
+        """
+        if node_id in self.nodes:
+            del self.nodes[node_id]
+        self.edges = [e for e in self.edges if e.source_id != node_id and e.target_id != node_id]
+
+    def is_superseded(self, node_id: str, active_node_ids: set[str] | None = None) -> bool:
+        """
+        Check if an entity node is superseded by an active superseding relation.
+
+        Args:
+            node_id: Node ID to check.
+            active_node_ids: Optional set of active node IDs to restrict supersession to.
+
+        Returns:
+            True if an active node supersedes node_id.
+        """
+        for edge in self.edges:
+            if (
+                edge.target_id == node_id
+                and edge.relation_type == RelationType.SUPERSEDES
+                and (active_node_ids is None or edge.source_id in active_node_ids)
+            ):
+                return True
+        return False
+

@@ -58,6 +58,10 @@ class MemoryRecord:
         valid_from: Datetime timestamp marking the start of temporal validity.
         valid_to: Optional datetime timestamp marking when the rule expires or is invalidated.
         metadata: Arbitrary key-value store for compliance tags (e.g., GDPR Art. 17 audit trails).
+        authority_rank: Hierarchical legal authority level (higher integer = higher authority).
+        jurisdiction: Optional jurisdictional scope identifier (e.g., 'EU', 'BR', 'US-CA').
+        transaction_time: Datetime timestamp recording when the record was ingested into the system.
+        personal_data: Flag indicating whether this record contains data subject personal information.
     """
 
     text: str
@@ -69,6 +73,10 @@ class MemoryRecord:
     valid_from: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     valid_to: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    authority_rank: int = 1
+    jurisdiction: str | None = None
+    transaction_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    personal_data: bool = False
 
     def is_temporally_valid(self, at_time: datetime | None = None) -> bool:
         """
@@ -81,9 +89,16 @@ class MemoryRecord:
             True if the record is currently valid; False if it has expired or been invalidated.
         """
         check_time = at_time or datetime.now(timezone.utc)
-        if check_time < self.valid_from:
+        if check_time.tzinfo is None:
+            check_time = check_time.replace(tzinfo=timezone.utc)
+        vf = self.valid_from.replace(tzinfo=timezone.utc) if self.valid_from.tzinfo is None else self.valid_from
+        if check_time < vf:
             return False
-        return not (self.valid_to is not None and check_time > self.valid_to)
+        if self.valid_to is not None:
+            vt = self.valid_to.replace(tzinfo=timezone.utc) if self.valid_to.tzinfo is None else self.valid_to
+            if check_time > vt:
+                return False
+        return True
 
 
 @dataclass
@@ -144,6 +159,8 @@ class PredictionResult:
                         and long-term slow consolidation networks.
         attention_weights: Full list of attention weights across all stored memory records.
         source_tier: Primary memory tier from which the result was synthesized.
+        attestation_token: Optional cryptographic attestation token for auditability.
+        retrieved_snippets: Optional list of minimal text snippets extracted during retrieval.
     """
 
     query: str
@@ -153,3 +170,5 @@ class PredictionResult:
     fast_slow_gate: float | None = None
     attention_weights: list[float] | None = None
     source_tier: MemoryTier | None = None
+    attestation_token: Any | None = None
+    retrieved_snippets: list[str] | None = None

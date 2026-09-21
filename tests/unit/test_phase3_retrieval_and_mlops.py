@@ -27,7 +27,7 @@ def test_bm25_okapi_scoring() -> None:
 
 def test_hybrid_legal_retriever() -> None:
     """Verify hybrid retrieval with BM25, dense vector similarities, and character snippet extraction."""
-    encoder = OllamaGemmaAdapter(embedding_dim=128, strict_privacy_mode=True)
+    encoder = OllamaGemmaAdapter(embedding_dim=128, strict_privacy_mode=True, allow_pseudo_embeddings=True)
     retriever = HybridLegalRetriever(encoder=encoder)
 
     text_1 = "Article 1: All personal data must be erased upon customer request within 15 business days."

@@ -88,5 +88,9 @@ class WorkingMemory:
         """Purge all working memory records."""
         self._records.clear()
 
+    def remove_by_text(self, text: str) -> None:
+        """Purge any working memory records matching the provided text."""
+        self._records = deque(rec for rec in self._records if rec.text != text)
+
     def __len__(self) -> int:
         return len(self._records)

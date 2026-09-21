@@ -11,10 +11,11 @@ from datetime import datetime, timezone
 import torch
 
 from continuous_legal_memory.domain.exceptions import TemporalInvalidationError
+from continuous_legal_memory.domain.interfaces import BaseMemoryStorePort
 from continuous_legal_memory.domain.models import MemoryRecord, MemoryTier
 
 
-class EpisodicMemory:
+class EpisodicMemory(BaseMemoryStorePort):
     """
     Episodic Memory timestamped chronological ledger.
 
@@ -44,6 +45,10 @@ class EpisodicMemory:
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
         metadata: dict | None = None,
+        authority_rank: int = 1,
+        jurisdiction: str | None = None,
+        transaction_time: datetime | None = None,
+        personal_data: bool = False,
     ) -> MemoryRecord:
         """
         Append a new immutable event record to the episodic ledger.
@@ -56,11 +61,16 @@ class EpisodicMemory:
             valid_from: Start timestamp of legal validity.
             valid_to: Expiry or temporal invalidation timestamp.
             metadata: Custom key-value audit metadata.
+            authority_rank: Legal authority rank integer (higher = higher authority).
+            jurisdiction: Jurisdictional scope identifier.
+            transaction_time: System ingestion timestamp.
+            personal_data: Whether this record contains personal data.
 
         Returns:
             The created and appended `MemoryRecord`.
         """
         timestamp = valid_from or datetime.now(timezone.utc)
+        trans_time = transaction_time or datetime.now(timezone.utc)
         record_id = self._generate_record_hash(text, timestamp)
 
         record = MemoryRecord(
@@ -73,6 +83,10 @@ class EpisodicMemory:
             valid_from=timestamp,
             valid_to=valid_to,
             metadata=metadata or {},
+            authority_rank=authority_rank,
+            jurisdiction=jurisdiction,
+            transaction_time=trans_time,
+            personal_data=personal_data,
         )
 
         self._ledger.append(record)
@@ -91,6 +105,19 @@ class EpisodicMemory:
         """
         eval_time = at_time or datetime.now(timezone.utc)
         return [rec for rec in self._ledger if rec.is_temporally_valid(eval_time)]
+
+    def get_valid_indices(self, at_time: datetime | None = None) -> list[int]:
+        """
+        Retrieve ledger indices of all temporally valid episodic records at the specified timestamp.
+
+        Args:
+            at_time: Datetime timestamp to evaluate validity against.
+
+        Returns:
+            List of integer indices corresponding to valid records in the ledger.
+        """
+        eval_time = at_time or datetime.now(timezone.utc)
+        return [i for i, rec in enumerate(self._ledger) if rec.is_temporally_valid(eval_time)]
 
     def compute_temporal_decay(self, record: MemoryRecord, at_time: datetime | None = None) -> float:
         """
@@ -126,3 +153,69 @@ class EpisodicMemory:
 
     def __len__(self) -> int:
         return len(self._ledger)
+
+    def add_record(self, record: MemoryRecord) -> None:
+        """
+        Store a new legal memory record in the persistent index (BaseMemoryStorePort).
+
+        Args:
+            record: MemoryRecord to append to the episodic ledger.
+        """
+        if record.record_id is None:
+            record.record_id = self._generate_record_hash(record.text, record.valid_from)
+        self._ledger.append(record)
+        self._hash_chain.append(record.record_id)
+
+    def get_records(self) -> list[MemoryRecord]:
+        """
+        Retrieve all currently registered memory records (BaseMemoryStorePort).
+
+        Returns:
+            List of all MemoryRecord instances in the ledger.
+        """
+        return list(self._ledger)
+
+    def clear(self) -> None:
+        """Purge all stored memory records (BaseMemoryStorePort)."""
+        self._ledger.clear()
+        self._hash_chain.clear()
+
+    def record_tombstone(self, record_id: str, timestamp: datetime | None = None) -> str:
+        """
+        Record a cryptographic tombstone entry in the episodic hash chain.
+
+        Args:
+            record_id: Identifier of the erased record.
+            timestamp: Invalidation/deletion timestamp.
+
+        Returns:
+            The SHA-256 tombstone digest string appended to the hash chain.
+        """
+        ts = timestamp or datetime.now(timezone.utc)
+        prev_hash = self._hash_chain[-1] if self._hash_chain else "GENESIS"
+        payload = f"TOMBSTONE:{prev_hash}:{ts.isoformat()}:{record_id}".encode()
+        tombstone_hash = hashlib.sha256(payload).hexdigest()
+        self._hash_chain.append(tombstone_hash)
+        return tombstone_hash
+
+    def delete_record(self, record_id: str, timestamp: datetime | None = None) -> MemoryRecord:
+        """
+        Delete a record from the ledger and record an immutable tombstone in the hash chain.
+
+        Args:
+            record_id: Identifier of record to delete.
+            timestamp: Erasure timestamp.
+
+        Returns:
+            The deleted MemoryRecord instance.
+
+        Raises:
+            KeyError: If record_id is not found in the ledger.
+        """
+        for i, rec in enumerate(self._ledger):
+            if rec.record_id == record_id:
+                deleted_rec = self._ledger.pop(i)
+                self.record_tombstone(record_id, timestamp)
+                return deleted_rec
+        raise KeyError(f"Record with ID '{record_id}' not found in episodic ledger.")
+

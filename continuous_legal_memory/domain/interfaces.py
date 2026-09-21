@@ -67,3 +67,47 @@ class BaseMemoryStorePort(ABC):
     def clear(self) -> None:
         """Purge all stored memory records."""
         pass
+
+
+class BaseRetrieverPort(ABC):
+    """
+    Abstract Port for legal memory retrieval engines.
+
+    Rationale:
+        Decouples attention calculation, keyword searching (BM25), and semantic vector scoring
+        from the neural memory module (HopeModule) and orchestrator, enabling pluggable retrieval engines
+        and baseline comparisons.
+    """
+
+    @abstractmethod
+    def retrieve(
+        self,
+        query_embed: torch.Tensor,
+        keys: torch.Tensor,
+        rule_importance: torch.Tensor,
+        temperature: float = 0.05,
+        query_text: str | None = None,
+        records: list[MemoryRecord] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, list[str] | None]:
+        """
+        Compute retrieval alignment scores, attention distribution, and optional text snippets.
+
+        Args:
+            query_embed: 2D PyTorch Tensor of shape (batch_size, embed_dim).
+            keys: 2D PyTorch Tensor of shape (num_keys, embed_dim).
+            rule_importance: 1D or 2D Tensor containing rule importance weights.
+            temperature: Softmax scaling temperature for attention sharpness.
+            query_text: Optional query text string for lexical/keyword scoring.
+            records: Optional list of MemoryRecord objects corresponding to keys.
+
+        Returns:
+            Tuple containing:
+            - raw_scores: 2D Tensor (batch_size, num_keys) unscaled alignment/similarity scores.
+            - attention_weights: 2D Tensor (batch_size, num_keys) normalized softmax probability distribution.
+            - snippets: Optional list of extracted text snippet strings, or None.
+        """
+        pass
+
+
+# Backward-compatibility / ergonomic alias
+RetrieverPort = BaseRetrieverPort

@@ -1,21 +1,26 @@
 """
-Agentic Legal Memory Evaluation (LLMOps) Suite.
+Agentic Legal Memory Evaluation (LLMOps) Heuristics Suite.
 
-Implements automated LLM-as-a-Judge and DeepEval/Ragas metric evaluators measuring Context Precision,
-Plan Adherence, and Cross-Session Recall for continuous legal memory agents.
+Implements heuristic metric evaluators measuring Context Precision, Plan Adherence,
+and Decision Vector Recall for continuous legal memory agents.
+
+Note:
+    These metric evaluators are standalone, rule- and token-based heuristic implementations.
+    Integration with formal DeepEval / Ragas evaluation frameworks is scheduled for CLM-T08.
 """
 
 
 
 class AgenticLegalEvaluator:
     """
-    Continuous Agentic Evaluation (LLMOps) framework.
+    Continuous Agentic Evaluation heuristic framework.
 
     Rationale:
-        Validates continuous legal memory performance across three core quality dimensions:
-        1. Context Precision: Measures whether retrieved snippets contain exact relevant legal text without extraneous noise.
-        2. Plan Adherence: Verifies that the agent executes multi-step legal review procedures in strict order.
-        3. Cross-Session Recall: Validates that memory items ingested in prior sessions are accurately recalled.
+        Provides lightweight heuristic metrics across three core quality dimensions:
+        1. Context Precision: Heuristic token overlap between retrieved snippet and reference ground truth.
+        2. Plan Adherence: Substring-matching verification across ordered procedural workflow steps.
+        3. Decision Vector Recall: L1 distance verification between predicted and expected decision vectors.
+        (Formal DeepEval / Ragas suite integration planned in CLM-T08).
     """
 
     def evaluate_context_precision(self, query: str, retrieved_snippet: str, ground_truth: str) -> float:

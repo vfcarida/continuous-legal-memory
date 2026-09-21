@@ -3,7 +3,12 @@ Continuum Memory System (CMS) Core Module.
 
 Implements fast-slow dual-timescale associative neural adaptation, surprise-driven priority scaling,
 and experience replay regularization to prevent catastrophic forgetting during online legal rule ingestion.
+Note: The base text encoder remains frozen (zero-backpropagation on the transformer). The small memory
+head MLP (fast_net) is adapted online via local gradient descent with experience replay and EMA
+consolidation into slow_net, combined with attention retrieval over an external key/value buffer.
 """
+
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -19,9 +24,9 @@ class ContinuousMemory(nn.Module):
 
     Rationale:
         Traditional RAG buffers rely on static vector databases without parameter adaptation.
-        CMS introduces two coupled networks:
-        1. Fast Network (`fast_net`): Rapidly adapts via inner-loop local optimization to immediately integrate
-           overriding legal rules or recent case precedents.
+        CMS introduces two coupled networks operating on frozen encoder representations:
+        1. Fast Network (`fast_net`): Rapidly adapts a lightweight memory MLP via inner-loop local gradient descent
+           to immediately integrate overriding legal rules or recent case precedents.
         2. Slow Network (`slow_net`): Consolidates long-term knowledge via outer-loop Exponential Moving Average (EMA),
            preserving foundational legal principles and guarding against catastrophic forgetting.
     """
@@ -56,7 +61,14 @@ class ContinuousMemory(nn.Module):
         # Surprise tracking momentum buffer for dynamic learning rate adjustments
         self.register_buffer("surprise_momentum", torch.zeros(1))
 
-    def add_memory(self, key_vector: torch.Tensor, value_vector: torch.Tensor, text: str) -> None:
+    def add_memory(
+        self,
+        key_vector: torch.Tensor,
+        value_vector: torch.Tensor,
+        text: str,
+        skip_parametric: bool = False,
+        authority_rank: int = 1,
+    ) -> None:
         """
         Dynamically ingest a new legal directive into active memory.
 
@@ -64,18 +76,22 @@ class ContinuousMemory(nn.Module):
             1. Input validation enforcing shape and numerical integrity.
             2. Compute prediction surprise via the consolidated slow network BEFORE buffer insertion.
             3. Update surprise momentum tracker and calculate rule importance scaling (contradictory rules get up to 4x weight).
-            4. Execute Inner Fast-Loop Optimization: Run gradient descent on `fast_net` balancing new rule adaptation,
+            4. If skip_parametric is True (e.g. personal data), append to retrieval buffers and return immediately.
+            5. Execute Inner Fast-Loop Optimization: Run gradient descent on `fast_net` balancing new rule adaptation,
                weighted experience replay over previously stored rules, and proximal regularization towards slow weights.
-            5. Execute Outer Slow-Loop Consolidation: Update `slow_net` parameters using EMA.
+            6. Execute Outer Slow-Loop Consolidation: Update `slow_net` parameters using EMA.
 
         Args:
             key_vector: Key embedding tensor of shape (1, embed_dim).
             value_vector: Action value target tensor of shape (1, value_dim).
             text: Human-readable legal text string describing the rule.
+            skip_parametric: If True, confines rule to retrieval buffer and bypasses neural weight updates.
+            authority_rank: Hierarchical authority rank of the rule.
 
         Raises:
             InvalidMemoryVectorError: If input text is empty or tensor dimensions do not match expected bounds.
         """
+        _ = authority_rank
         if not isinstance(text, str) or len(text.strip()) == 0:
             raise InvalidMemoryVectorError("Rule text must be a non-empty string.")
 
@@ -112,6 +128,10 @@ class ContinuousMemory(nn.Module):
         importance_val = 1.0 + 3.0 * surprise
         importance_tensor = torch.tensor([importance_val], device=key_vector.device)
         self.rule_importance = torch.cat([self.rule_importance, importance_tensor], dim=0)
+
+        # If flagged to skip parametric absorption (e.g. personal data), stop here
+        if skip_parametric:
+            return
 
         # Dynamically scale inner-loop learning rate and epoch count based on surprise score
         base_lr = 0.01
@@ -158,3 +178,52 @@ class ContinuousMemory(nn.Module):
         with torch.no_grad():
             for p_fast, p_slow in zip(self.fast_net.parameters(), self.slow_net.parameters()):
                 p_slow.copy_(p_slow + tau * (p_fast - p_slow))
+
+    def delete_buffer_index(self, index: int) -> None:
+        """
+        Remove a memory entry at the specified index from the retrieval buffers.
+
+        Args:
+            index: Integer buffer index to purge.
+
+        Raises:
+            IndexError: If index is out of bounds.
+        """
+        if index < 0 or index >= self.keys.size(0):
+            raise IndexError(f"Buffer index {index} out of range [0, {self.keys.size(0)}).")
+
+        self.keys = torch.cat([self.keys[:index], self.keys[index + 1:]], dim=0)
+        self.values = torch.cat([self.values[:index], self.values[index + 1:]], dim=0)
+        self.rule_importance = torch.cat([self.rule_importance[:index], self.rule_importance[index + 1:]], dim=0)
+        self.texts.pop(index)
+
+    def rebuild_from_records(self, records: list[Any], seed: int | None = None) -> None:
+        """
+        Reconstruct neural memory buffers and retrain parametric weights from a clean list of records.
+
+        Args:
+            records: List of MemoryRecord instances to consolidate.
+            seed: Optional random seed for reproducible network reinitialization.
+        """
+        if seed is not None:
+            torch.manual_seed(seed)
+
+        self.fast_net = MemoryMLP(self.embed_dim, self.hidden_dim, self.value_dim)
+        self.slow_net = MemoryMLP(self.embed_dim, self.hidden_dim, self.value_dim)
+        self.slow_net.load_state_dict(self.fast_net.state_dict())
+
+        self.keys = torch.empty(0, self.embed_dim, device=self.keys.device)
+        self.values = torch.empty(0, self.value_dim, device=self.values.device)
+        self.rule_importance = torch.empty(0, device=self.rule_importance.device)
+        self.texts = []
+        self.surprise_momentum = torch.zeros(1, device=self.surprise_momentum.device)
+
+        for rec in records:
+            self.add_memory(
+                rec.key_vector,
+                rec.value_vector,
+                rec.text,
+                skip_parametric=rec.personal_data,
+                authority_rank=rec.authority_rank,
+            )
+

@@ -10,8 +10,9 @@ import re
 
 import torch
 
-from continuous_legal_memory.domain.interfaces import BaseEncoderPort
+from continuous_legal_memory.domain.interfaces import BaseEncoderPort, BaseRetrieverPort
 from continuous_legal_memory.domain.models import MemoryRecord
+from continuous_legal_memory.retrieval.precedence import apply_legal_precedence
 
 
 class BM25Okapi:
@@ -62,7 +63,7 @@ class BM25Okapi:
         return scores
 
 
-class HybridLegalRetriever:
+class HybridLegalRetriever(BaseRetrieverPort):
     """
     Precision Hybrid Legal Retrieval Engine.
 
@@ -91,6 +92,42 @@ class HybridLegalRetriever:
         self.encoder = encoder
         self.bm25_weight = bm25_weight
         self.dense_weight = dense_weight
+
+    def retrieve(
+        self,
+        query_embed: torch.Tensor,
+        keys: torch.Tensor,
+        rule_importance: torch.Tensor,
+        temperature: float = 0.05,
+        query_text: str | None = None,
+        records: list[MemoryRecord] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, list[str] | None]:
+        """
+        Compute hybrid retrieval scores, attention weights, and optional snippets (BaseRetrieverPort).
+
+        Combines BM25 keyword matching (if records and query_text are provided) with dense vector cosine similarity.
+        """
+        query_norm = torch.nn.functional.normalize(query_embed, p=2, dim=-1)
+        keys_norm = torch.nn.functional.normalize(keys, p=2, dim=-1)
+        dense_scores = torch.matmul(query_norm, keys_norm.T)  # Shape: (batch, num_keys)
+
+        snippets: list[str] | None = None
+        if records and query_text:
+            corpus = [r.text for r in records]
+            bm25 = BM25Okapi(corpus)
+            raw_bm25 = bm25.get_scores(query_text)
+            max_bm25 = max(raw_bm25) if raw_bm25 and max(raw_bm25) > 0 else 1.0
+            norm_bm25 = [s / max_bm25 for s in raw_bm25]
+            bm25_tensor = torch.tensor([norm_bm25], dtype=query_embed.dtype, device=query_embed.device)
+            scores = self.bm25_weight * bm25_tensor + self.dense_weight * dense_scores
+            snippets = [self.extract_character_snippet(r.text, query_text)[2] for r in records]
+        else:
+            scores = dense_scores
+
+        scaled_scores = apply_legal_precedence(scores, rule_importance, records)
+        attention_weights = torch.nn.functional.softmax(scaled_scores / temperature, dim=-1)
+
+        return scores, attention_weights, snippets
 
     def retrieve_with_snippets(
         self,

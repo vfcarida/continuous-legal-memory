@@ -6,6 +6,7 @@ enforcing strict privacy mode with zero cloud telemetry or data leakage.
 """
 
 import json
+import logging
 import urllib.error
 import urllib.request
 
@@ -13,6 +14,8 @@ import torch
 
 from continuous_legal_memory.domain.exceptions import EncoderInferenceError
 from continuous_legal_memory.domain.interfaces import BaseEncoderPort
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaGemmaAdapter(BaseEncoderPort):
@@ -31,6 +34,7 @@ class OllamaGemmaAdapter(BaseEncoderPort):
         host_url: str = "http://localhost:11434",
         embedding_dim: int = 768,
         strict_privacy_mode: bool = True,
+        allow_pseudo_embeddings: bool = False,
     ) -> None:
         """
         Initialize the Ollama Gemma Edge Adapter.
@@ -40,6 +44,9 @@ class OllamaGemmaAdapter(BaseEncoderPort):
             host_url: URL host of the local Ollama daemon service.
             embedding_dim: Expected vector output dimension.
             strict_privacy_mode: Enforces local loopback check and blocks remote endpoints.
+            allow_pseudo_embeddings: If False (default), raises EncoderInferenceError when daemon
+                                     is unreachable. If True, emits a warning and generates a
+                                     deterministic pseudo-random fallback vector for offline testing.
 
         Raises:
             EncoderInferenceError: If strict privacy mode is active and host_url is non-local.
@@ -48,6 +55,7 @@ class OllamaGemmaAdapter(BaseEncoderPort):
         self.host_url = host_url.rstrip("/")
         self._embedding_dim = embedding_dim
         self.strict_privacy_mode = strict_privacy_mode
+        self.allow_pseudo_embeddings = allow_pseudo_embeddings
 
         if self.strict_privacy_mode and not self._is_local_endpoint(self.host_url):
             raise EncoderInferenceError(
@@ -104,10 +112,32 @@ class OllamaGemmaAdapter(BaseEncoderPort):
                     if isinstance(embedding, list) and len(embedding) > 0:
                         self._embedding_dim = len(embedding)
                         return embedding
-        except Exception:
-            # Fallback to local deterministic pseudo-embedding generator if local daemon is offline
-            pass
+                if not self.allow_pseudo_embeddings:
+                    raise EncoderInferenceError(
+                        f"Ollama API returned non-200 or invalid status: {response.status}",
+                        payload={"host_url": self.host_url, "status": response.status},
+                    )
+        except Exception as e:
+            if not self.allow_pseudo_embeddings:
+                if isinstance(e, EncoderInferenceError):
+                    raise
+                raise EncoderInferenceError(
+                    f"Ollama daemon at '{self.host_url}' is unreachable or failed: {e}",
+                    payload={"host_url": self.host_url, "model": self.model_name},
+                ) from e
+            logger.warning(
+                "Ollama daemon unreachable at '%s'. Fallback pseudo-embedding used because allow_pseudo_embeddings=True.",
+                self.host_url,
+            )
 
+        if not self.allow_pseudo_embeddings:
+            raise EncoderInferenceError(
+                f"Ollama endpoint '{url}' returned empty or invalid embedding payload.",
+                payload={"host_url": self.host_url, "model": self.model_name},
+            )
+        logger.warning(
+            "Ollama endpoint returned invalid payload. Fallback pseudo-embedding used because allow_pseudo_embeddings=True."
+        )
         # Deterministic offline fallback embedding generator based on text hashing
         return self._generate_fallback_vector(text)
 

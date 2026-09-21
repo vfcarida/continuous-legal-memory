@@ -355,7 +355,7 @@ def mock_execution():
         print("\n[SUCESSO] O modelo atualizou dinamicamente seu raciocínio jurídico.")
         print("          O módulo 'Hope' identificou a similaridade semântica da nova regra com")
         print("          a query (empréstimo/crédito) e sobrepôs a atenção, mudando o output")
-        print("          final da rede sem a necessidade de Fine-Tuning/Backprop!")
+        print("          final da rede sem a necessidade de Fine-Tuning/Backprop no encoder base!")
     else:
         print("\n[AVISO] A variação semântica das frases não permitiu a inversão perfeita com a temperatura atual.")
         print("        Considere ajustar a temperatura do Softmax ou usar SentenceTransformers focados em similaridade.")

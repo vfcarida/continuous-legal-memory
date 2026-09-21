@@ -5,12 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "continuous-legal-memory"
 version = "0.1.0"
-description = "Production-ready enterprise cognitive memory framework for persistent LLM legal agents."
+description = "Research proof-of-concept cognitive memory framework for legal LLM agents."
 readme = "README.md"
 authors = [
     { name = "Vinicius Caridá", email = "vfcarida@gmail.com" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "torch>=2.0.0",
     "transformers>=4.30.0",
@@ -25,9 +31,7 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.5.0",
 ]
-mlops = [
-    "ragas>=0.1.0",
-    "deepeval>=0.20.0",
+telemetry = [
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0",
 ]
