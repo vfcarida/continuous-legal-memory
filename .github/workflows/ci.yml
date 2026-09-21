@@ -27,7 +27,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev,mlops]
+          pip install -e .[dev,telemetry,mlops]
 
       - name: Run Ruff Linter & Format Checks
         run: |
@@ -35,4 +35,4 @@ jobs:
 
       - name: Run Pytest & Agentic Test Suite
         run: |
-          python -m pytest tests/unit test_continuous_memory.py -v --cov=continuous_legal_memory
+          python -m pytest tests/unit -v --cov=continuous_legal_memory

@@ -49,6 +49,7 @@ class EpisodicMemory(BaseMemoryStorePort):
         jurisdiction: str | None = None,
         transaction_time: datetime | None = None,
         personal_data: bool = False,
+        tenant_id: str = "default",
     ) -> MemoryRecord:
         """
         Append a new immutable event record to the episodic ledger.
@@ -65,6 +66,7 @@ class EpisodicMemory(BaseMemoryStorePort):
             jurisdiction: Jurisdictional scope identifier.
             transaction_time: System ingestion timestamp.
             personal_data: Whether this record contains personal data.
+            tenant_id: Tenant or workspace identifier for multi-tenant isolation.
 
         Returns:
             The created and appended `MemoryRecord`.
@@ -87,37 +89,54 @@ class EpisodicMemory(BaseMemoryStorePort):
             jurisdiction=jurisdiction,
             transaction_time=trans_time,
             personal_data=personal_data,
+            tenant_id=tenant_id,
         )
 
         self._ledger.append(record)
         self._hash_chain.append(record_id)
         return record
 
-    def get_valid_records(self, at_time: datetime | None = None) -> list[MemoryRecord]:
+    def get_valid_records(
+        self,
+        at_time: datetime | None = None,
+        tenant_id: str | None = None,
+    ) -> list[MemoryRecord]:
         """
         Retrieve all temporally valid episodic records at the specified timestamp.
 
         Args:
             at_time: Datetime timestamp to evaluate validity against.
+            tenant_id: Optional tenant identifier to enforce multi-tenant isolation.
 
         Returns:
             List of valid `MemoryRecord` instances.
         """
         eval_time = at_time or datetime.now(timezone.utc)
-        return [rec for rec in self._ledger if rec.is_temporally_valid(eval_time)]
+        return [
+            rec for rec in self._ledger
+            if rec.is_temporally_valid(eval_time) and (tenant_id is None or rec.tenant_id == tenant_id)
+        ]
 
-    def get_valid_indices(self, at_time: datetime | None = None) -> list[int]:
+    def get_valid_indices(
+        self,
+        at_time: datetime | None = None,
+        tenant_id: str | None = None,
+    ) -> list[int]:
         """
         Retrieve ledger indices of all temporally valid episodic records at the specified timestamp.
 
         Args:
             at_time: Datetime timestamp to evaluate validity against.
+            tenant_id: Optional tenant identifier to enforce multi-tenant isolation.
 
         Returns:
             List of integer indices corresponding to valid records in the ledger.
         """
         eval_time = at_time or datetime.now(timezone.utc)
-        return [i for i, rec in enumerate(self._ledger) if rec.is_temporally_valid(eval_time)]
+        return [
+            i for i, rec in enumerate(self._ledger)
+            if rec.is_temporally_valid(eval_time) and (tenant_id is None or rec.tenant_id == tenant_id)
+        ]
 
     def compute_temporal_decay(self, record: MemoryRecord, at_time: datetime | None = None) -> float:
         """
@@ -166,13 +185,18 @@ class EpisodicMemory(BaseMemoryStorePort):
         self._ledger.append(record)
         self._hash_chain.append(record.record_id)
 
-    def get_records(self) -> list[MemoryRecord]:
+    def get_records(self, tenant_id: str | None = None) -> list[MemoryRecord]:
         """
         Retrieve all currently registered memory records (BaseMemoryStorePort).
 
+        Args:
+            tenant_id: Optional tenant identifier to filter records by tenant.
+
         Returns:
-            List of all MemoryRecord instances in the ledger.
+            List of MemoryRecord instances in the ledger.
         """
+        if tenant_id is not None:
+            return [rec for rec in self._ledger if rec.tenant_id == tenant_id]
         return list(self._ledger)
 
     def clear(self) -> None:

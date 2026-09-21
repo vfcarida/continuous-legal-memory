@@ -222,15 +222,24 @@ class TemporalStructuredBaseline:
                 authority_rank=r.get("authority_rank", 1),
                 jurisdiction=r.get("jurisdiction"),
                 personal_data=r.get("personal_data", False),
+                tenant_id=r.get("tenant", r.get("tenant_id", "default")),
             )
             self.records.append(rec)
 
-    def predict(self, query_text: str, at_time: datetime | None = None) -> list[float]:
+    def predict(
+        self,
+        query_text: str,
+        at_time: datetime | None = None,
+        tenant_id: str | None = None,
+    ) -> list[float]:
         if not self.records or self.encoder is None:
             return [0.0] * self.value_dim
 
         eval_time = at_time or datetime.now(timezone.utc)
-        valid_records = [r for r in self.records if r.is_temporally_valid(eval_time)]
+        valid_records = [
+            r for r in self.records
+            if r.is_temporally_valid(eval_time) and (tenant_id is None or r.tenant_id == tenant_id)
+        ]
         if not valid_records:
             return [0.0] * self.value_dim
 
@@ -290,12 +299,18 @@ class HybridMemoryBaseline:
                 valid_from=v_from,
                 valid_to=v_to,
                 metadata=r.get("metadata"),
+                tenant_id=r.get("tenant", r.get("tenant_id", "default")),
             )
 
-    def predict(self, query_text: str, at_time: datetime | None = None) -> list[float]:
+    def predict(
+        self,
+        query_text: str,
+        at_time: datetime | None = None,
+        tenant_id: str | None = None,
+    ) -> list[float]:
         if self.orchestrator is None:
             return [0.0] * self.value_dim
-        res = self.orchestrator.predict(query_text, at_time=at_time)
+        res = self.orchestrator.predict(query_text, at_time=at_time, tenant_id=tenant_id)
         return res.predicted_action_vector
 
 
@@ -477,8 +492,11 @@ class EvaluationHarness:
 
         leaks = 0
         for q in tenant_queries:
-            # Check if prediction retrieves tenant_beta rules
-            pred = model.predict(q["query_text"])
+            q_tenant = q.get("tenant", q.get("tenant_id", "tenant_alpha"))
+            try:
+                pred = model.predict(q["query_text"], tenant_id=q_tenant)
+            except TypeError:
+                pred = model.predict(q["query_text"])
             # If output is non-zero, it indicates cross-tenant memory access
             if abs(pred[0]) > 0.1 or abs(pred[1]) > 0.1:
                 leaks += 1
@@ -615,6 +633,9 @@ class EvaluationHarness:
         tenant_leak_rag = self.evaluate_tenant_isolation(
             lambda: PlainRAGBaseline(), normal_rules, tenant_queries
         )
+        tenant_leak_structured = self.evaluate_tenant_isolation(
+            lambda: TemporalStructuredBaseline(), normal_rules, tenant_queries
+        )
         tenant_leak_hybrid = self.evaluate_tenant_isolation(
             lambda: HybridMemoryBaseline(seed=42), normal_rules, tenant_queries
         )
@@ -627,8 +648,9 @@ class EvaluationHarness:
             },
             "multi_tenant_leakage_rate": {
                 "PlainRAG": f"{tenant_leak_rag:.2%}",
+                "TemporalStructured": f"{tenant_leak_structured:.2%}",
                 "HybridMemory": f"{tenant_leak_hybrid:.2%}",
-                "status": "VULNERABLE (Multi-tenancy isolation not yet enforced)",
+                "status": "PROTECTED (Tenant isolation enforced: 0.00% leakage)" if tenant_leak_structured == 0.0 and tenant_leak_hybrid == 0.0 else "VULNERABLE",
             },
         }
 

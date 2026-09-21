@@ -77,6 +77,7 @@ class MemoryRecord:
     jurisdiction: str | None = None
     transaction_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     personal_data: bool = False
+    tenant_id: str = "default"
 
     def is_temporally_valid(self, at_time: datetime | None = None) -> bool:
         """
@@ -172,3 +173,4 @@ class PredictionResult:
     source_tier: MemoryTier | None = None
     attestation_token: Any | None = None
     retrieved_snippets: list[str] | None = None
+    tenant_id: str = "default"

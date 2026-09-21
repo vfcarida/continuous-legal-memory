@@ -76,9 +76,16 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     authority_rank INTEGER NOT NULL,
                     jurisdiction TEXT,
                     personal_data INTEGER NOT NULL,
-                    metadata_json TEXT NOT NULL
+                    metadata_json TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL DEFAULT 'default'
                 )
             """)
+            # Migration check for existing databases
+            cursor.execute("PRAGMA table_info(episodic_ledger)")
+            cols = [row[1] for row in cursor.fetchall()]
+            if "tenant_id" not in cols:
+                cursor.execute("ALTER TABLE episodic_ledger ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodic_tenant ON episodic_ledger(tenant_id)")
 
             # 2. Hash Chain Table
             cursor.execute("""
@@ -146,8 +153,8 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                 INSERT OR REPLACE INTO episodic_ledger (
                     record_id, seq, text, key_vector, value_vector, importance_score,
                     tier, valid_from, valid_to, transaction_time, authority_rank,
-                    jurisdiction, personal_data, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    jurisdiction, personal_data, metadata_json, tenant_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 record.record_id or f"rec_{next_seq}",
                 next_seq,
@@ -163,14 +170,18 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                 record.jurisdiction,
                 1 if record.personal_data else 0,
                 json.dumps(record.metadata),
+                record.tenant_id,
             ))
             conn.commit()
 
-    def get_records(self) -> list[MemoryRecord]:
-        """Retrieve all currently registered memory records."""
+    def get_records(self, tenant_id: str | None = None) -> list[MemoryRecord]:
+        """Retrieve all currently registered memory records, optionally filtered by tenant."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM episodic_ledger ORDER BY seq ASC")
+            if tenant_id is not None:
+                cursor.execute("SELECT * FROM episodic_ledger WHERE tenant_id = ? ORDER BY seq ASC", (tenant_id,))
+            else:
+                cursor.execute("SELECT * FROM episodic_ledger ORDER BY seq ASC")
             rows = cursor.fetchall()
             return [self._row_to_record(row) for row in rows]
 
@@ -219,8 +230,8 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     INSERT INTO episodic_ledger (
                         record_id, seq, text, key_vector, value_vector, importance_score,
                         tier, valid_from, valid_to, transaction_time, authority_rank,
-                        jurisdiction, personal_data, metadata_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        jurisdiction, personal_data, metadata_json, tenant_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     rec.record_id or f"rec_{seq}",
                     seq,
@@ -236,6 +247,7 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     rec.jurisdiction,
                     1 if rec.personal_data else 0,
                     json.dumps(rec.metadata),
+                    rec.tenant_id,
                 ))
 
             # 4. Hash Chain
@@ -405,6 +417,8 @@ class SqliteMemoryStore(BaseMemoryStorePort):
         if tt.tzinfo is None:
             tt = tt.replace(tzinfo=timezone.utc)
 
+        tenant_id = row["tenant_id"] if "tenant_id" in row else "default"  # noqa: SIM401
+
         return MemoryRecord(
             text=row["text"],
             key_vector=key_vec,
@@ -419,4 +433,5 @@ class SqliteMemoryStore(BaseMemoryStorePort):
             jurisdiction=row["jurisdiction"],
             transaction_time=tt,
             personal_data=bool(row["personal_data"]),
+            tenant_id=tenant_id,
         )

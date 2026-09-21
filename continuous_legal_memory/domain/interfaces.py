@@ -59,8 +59,8 @@ class BaseMemoryStorePort(ABC):
         pass
 
     @abstractmethod
-    def get_records(self) -> list[MemoryRecord]:
-        """Retrieve all currently registered memory records."""
+    def get_records(self, tenant_id: str | None = None) -> list[MemoryRecord]:
+        """Retrieve all currently registered memory records, optionally filtered by tenant."""
         pass
 
     @abstractmethod

@@ -136,6 +136,7 @@ class LegalMemoryOrchestrator:
         authority_rank: int = 1,
         jurisdiction: str | None = None,
         personal_data: bool = False,
+        tenant_id: str = "default",
     ) -> MemoryRecord:
         """
         Ingest a new legal directive into active neural memory and multi-tier ledgers.
@@ -149,6 +150,7 @@ class LegalMemoryOrchestrator:
             authority_rank: Hierarchical legal authority rank integer.
             jurisdiction: Jurisdictional scope identifier.
             personal_data: Whether this record contains personal data requiring right-to-erasure.
+            tenant_id: Tenant or workspace identifier for multi-tenant isolation.
 
         Returns:
             The created and appended MemoryRecord.
@@ -169,11 +171,12 @@ class LegalMemoryOrchestrator:
                 authority_rank,
                 jurisdiction,
                 personal_data,
+                tenant_id,
             )
             return res
         return self._execute_update_memory(
             rule_text, action_vector, valid_from, valid_to, metadata,
-            authority_rank, jurisdiction, personal_data
+            authority_rank, jurisdiction, personal_data, tenant_id
         )
 
     def _execute_update_memory(
@@ -186,6 +189,7 @@ class LegalMemoryOrchestrator:
         authority_rank: int = 1,
         jurisdiction: str | None = None,
         personal_data: bool = False,
+        tenant_id: str = "default",
     ) -> MemoryRecord:
         if not isinstance(rule_text, str) or len(rule_text.strip()) == 0:
             raise InvalidMemoryVectorError("Rule text must be a non-empty string.")
@@ -199,6 +203,10 @@ class LegalMemoryOrchestrator:
         auth_rank = metadata.get("authority_rank", authority_rank) if metadata else authority_rank
         juris = metadata.get("jurisdiction", jurisdiction) if metadata else jurisdiction
         is_personal = metadata.get("personal_data", personal_data) if metadata else personal_data
+        tenant = (
+            metadata.get("tenant_id", metadata.get("tenant", tenant_id))
+            if metadata else tenant_id
+        )
 
         try:
             key_embed = self.encoder.get_embedding([rule_text])
@@ -230,6 +238,7 @@ class LegalMemoryOrchestrator:
                 authority_rank=auth_rank,
                 jurisdiction=juris,
                 personal_data=is_personal,
+                tenant_id=tenant,
             )
         else:
             rec = MemoryRecord(
@@ -242,6 +251,7 @@ class LegalMemoryOrchestrator:
                 authority_rank=auth_rank,
                 jurisdiction=juris,
                 personal_data=is_personal,
+                tenant_id=tenant,
             )
             self.episodic_memory.add_record(rec)
 
@@ -290,13 +300,19 @@ class LegalMemoryOrchestrator:
 
         return rec
 
-    def predict(self, query_text: str, at_time: datetime | None = None) -> PredictionResult:
+    def predict(
+        self,
+        query_text: str,
+        at_time: datetime | None = None,
+        tenant_id: str | None = None,
+    ) -> PredictionResult:
         """
         Predict decision vectors across multi-tier memory networks for a query string.
 
         Args:
             query_text: Legal query or case scenario text string.
             at_time: Datetime timestamp to evaluate temporal validity.
+            tenant_id: Optional tenant identifier to enforce multi-tenant isolation.
 
         Returns:
             A populated `PredictionResult` domain object.
@@ -311,9 +327,10 @@ class LegalMemoryOrchestrator:
                 self._execute_predict,
                 query_text,
                 at_time,
+                tenant_id,
             )
         else:
-            result = self._execute_predict(query_text, at_time)
+            result = self._execute_predict(query_text, at_time, tenant_id)
 
         if self.attestor is not None:
             token = self.attestor.sign_attestation(result, retrieved_text=result.most_relevant_rule)
@@ -321,13 +338,18 @@ class LegalMemoryOrchestrator:
 
         return result
 
-    def _execute_predict(self, query_text: str, at_time: datetime | None = None) -> PredictionResult:
+    def _execute_predict(
+        self,
+        query_text: str,
+        at_time: datetime | None = None,
+        tenant_id: str | None = None,
+    ) -> PredictionResult:
         if not isinstance(query_text, str) or len(query_text.strip()) == 0:
             raise InvalidMemoryVectorError("Query text must be a non-empty string.")
 
         eval_time = at_time or datetime.now(timezone.utc)
-        valid_indices = self.episodic_memory.get_valid_indices(eval_time)
-        valid_records = self.episodic_memory.get_valid_records(eval_time)
+        valid_indices = self.episodic_memory.get_valid_indices(eval_time, tenant_id=tenant_id)
+        valid_records = self.episodic_memory.get_valid_records(eval_time, tenant_id=tenant_id)
 
         try:
             query_embed = self.encoder.get_embedding([query_text])
@@ -346,6 +368,7 @@ class LegalMemoryOrchestrator:
                 most_relevant_rule=None,
                 confidence=None,
                 attention_weights=None,
+                tenant_id=tenant_id or "default",
             )
 
         predicted_action, attention_weights, fast_slow_gate = self.hope_module(
@@ -365,6 +388,7 @@ class LegalMemoryOrchestrator:
             fast_slow_gate=fast_slow_gate,
             source_tier=MemoryTier.SEMANTIC if self.semantic_graph.nodes else MemoryTier.EPISODIC,
             retrieved_snippets=self.hope_module.last_snippets,
+            tenant_id=tenant_id or "default",
         )
 
         if attention_weights is not None:
@@ -375,12 +399,15 @@ class LegalMemoryOrchestrator:
             result.attention_weights = weights
             top_local_idx = int(torch.argmax(attention_weights, dim=-1).item())
             top_global_idx = valid_indices[top_local_idx]
-            result.most_relevant_rule = self.hope_module.memory.texts[top_global_idx]
+            if valid_records and top_local_idx < len(valid_records):
+                result.most_relevant_rule = valid_records[top_local_idx].text
+            else:
+                result.most_relevant_rule = self.hope_module.memory.texts[top_global_idx]
             result.confidence = weights[top_local_idx]
 
         return result
 
-    def delete_rule(self, record_id: str) -> dict[str, Any]:
+    def delete_rule(self, record_id: str, tenant_id: str | None = None) -> dict[str, Any]:
         """
         Execute Right-to-Erasure (GDPR Art. 17 / CLM-R7) across all memory tiers.
 
@@ -395,12 +422,13 @@ class LegalMemoryOrchestrator:
 
         Args:
             record_id: Identifier of the rule/record to permanently erase.
+            tenant_id: Optional tenant identifier to enforce authorization.
 
         Returns:
             Audit record dictionary confirming multi-tier erasure metrics.
 
         Raises:
-            KeyError: If record_id is not found in the episodic ledger.
+            KeyError: If record_id is not found in the episodic ledger or tenant mismatch.
         """
         deleted_rec = None
         for rec in self.episodic_memory.get_records():
@@ -410,6 +438,9 @@ class LegalMemoryOrchestrator:
 
         if deleted_rec is None:
             raise KeyError(f"Rule with ID '{record_id}' not found in episodic ledger.")
+
+        if tenant_id is not None and deleted_rec.tenant_id != tenant_id:
+            raise KeyError(f"Rule with ID '{record_id}' does not belong to tenant '{tenant_id}'.")
 
         # 1. Delete from Episodic Memory (records tombstone in hash chain)
         if hasattr(self.episodic_memory, "delete_record"):
