@@ -344,4 +344,108 @@ class SemanticKnowledgeGraph:
             return list(self.edges)
         return [e for e in self.edges if e.tenant_id == tenant_id]
 
+    def personalized_pagerank(
+        self,
+        seed_weights: dict[str, float] | list[str],
+        damping: float = 0.85,
+        max_iterations: int = 50,
+        convergence_tol: float = 1e-6,
+        tenant_id: str | None = None,
+        at_time: datetime | None = None,
+    ) -> dict[str, float]:
+        """
+        Compute HippoRAG-style Personalized PageRank (PPR) over the legal entity graph.
+
+        Rationale:
+            Standard semantic search retrieves only nodes that directly match the query text.
+            In legal architectures, relevant statutory provisions often form multi-hop chains
+            (e.g., General Rule -> Exception Clause -> Enforcement Directive).
+            PPR diffuses activation mass from query seed nodes across semantic edges, discovering
+            topologically and legally associated statutes while respecting tenant isolation.
+
+        Args:
+            seed_weights: Either a dict mapping node_id -> float relevance score, or a list of node_ids.
+            damping: Teleportation probability balance alpha (typically 0.85).
+            max_iterations: Maximum power iteration steps.
+            convergence_tol: L1 norm convergence threshold.
+            tenant_id: Optional tenant identifier to enforce multi-tenant isolation.
+            at_time: Datetime timestamp to filter out expired nodes. Defaults to current UTC time.
+
+        Returns:
+            Dictionary mapping node_id to its stationary PPR probability, sorted descending.
+        """
+        eval_time = at_time or datetime.now(timezone.utc)
+        valid_nodes = [
+            n for n in self.nodes.values()
+            if (tenant_id is None or n.tenant_id == tenant_id)
+            and (n.valid_to is None or eval_time <= n.valid_to)
+        ]
+        if not valid_nodes:
+            return {}
+
+        node_ids = [n.node_id for n in valid_nodes]
+        node_set = set(node_ids)
+        n_nodes = len(node_ids)
+        idx_to_id = dict(enumerate(node_ids))
+        id_to_idx = {nid: i for i, nid in enumerate(node_ids)}
+
+        # Build personalization distribution vector v
+        if isinstance(seed_weights, list):
+            seed_dict = {s: 1.0 for s in seed_weights if s in node_set}
+        else:
+            seed_dict = {s: float(w) for s, w in seed_weights.items() if s in node_set and w > 0}
+
+        total_seed_weight = sum(seed_dict.values())
+        if total_seed_weight > 0:
+            p_teleport = [seed_dict.get(nid, 0.0) / total_seed_weight for nid in node_ids]
+        else:
+            p_teleport = [1.0 / n_nodes] * n_nodes
+
+        # Build adjacency matrix and out-degree sums
+        adj: dict[int, list[tuple[int, float]]] = {i: [] for i in range(n_nodes)}
+        out_weights: list[float] = [0.0] * n_nodes
+
+        for edge in self.edges:
+            if tenant_id is not None and edge.tenant_id != tenant_id:
+                continue
+            if edge.source_id in id_to_idx and edge.target_id in id_to_idx:
+                src_idx = id_to_idx[edge.source_id]
+                tgt_idx = id_to_idx[edge.target_id]
+                w = max(0.01, float(edge.weight))
+                adj[src_idx].append((tgt_idx, w))
+                out_weights[src_idx] += w
+
+        # Power iteration
+        p = list(p_teleport)
+
+        for _ in range(max_iterations):
+            p_next = [(1.0 - damping) * t for t in p_teleport]
+
+            # Handle dangling nodes (out_weight == 0)
+            dangling_mass = sum(p[i] for i in range(n_nodes) if out_weights[i] == 0.0)
+            if dangling_mass > 0:
+                for i in range(n_nodes):
+                    p_next[i] += damping * dangling_mass * p_teleport[i]
+
+            for src_idx in range(n_nodes):
+                if out_weights[src_idx] > 0:
+                    src_prob = p[src_idx]
+                    total_out = out_weights[src_idx]
+                    for tgt_idx, weight in adj[src_idx]:
+                        p_next[tgt_idx] += damping * src_prob * (weight / total_out)
+
+            # Check L1 convergence
+            diff = sum(abs(p_next[i] - p[i]) for i in range(n_nodes))
+            p = p_next
+            if diff < convergence_tol:
+                break
+
+        return dict(
+            sorted(
+                {idx_to_id[i]: p[i] for i in range(n_nodes)}.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+        )
+
 

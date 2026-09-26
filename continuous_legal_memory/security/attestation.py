@@ -288,6 +288,7 @@ class AsymmetricAttestationModule:
         """
         self.key_id = key_id
         self.is_ephemeral = False
+        self._private_key: bytes | None = None
 
         if private_key is not None:
             self._private_key = (

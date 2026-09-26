@@ -216,7 +216,7 @@ class TemporalStructuredBaseline:
                 text=text,
                 key_vector=key,
                 value_vector=val,
-                valid_from=v_from,
+                valid_from=v_from or datetime.now(timezone.utc),
                 valid_to=v_to,
                 metadata=r.get("metadata", {}),
                 authority_rank=r.get("authority_rank", 1),

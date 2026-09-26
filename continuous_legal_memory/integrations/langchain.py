@@ -19,9 +19,9 @@ try:
     from langchain_core.memory import BaseMemory as _LangChainBaseMemory
 except ImportError:
     try:
-        from langchain.schema import BaseMemory as _LangChainBaseMemory  # type: ignore[no-redef]
+        from langchain.schema import BaseMemory as _LangChainBaseMemory
     except ImportError:
-        _LangChainBaseMemory = object  # type: ignore[misc,assignment]
+        _LangChainBaseMemory = object
 
 
 class ContinuousLegalMemoryLangChain(_LangChainBaseMemory):

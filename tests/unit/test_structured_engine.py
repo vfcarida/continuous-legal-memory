@@ -114,3 +114,42 @@ def test_research_neural_head_warning() -> None:
         head = ContinuousMemoryResearchHead(embed_dim=64, value_dim=2)
         assert head.embed_dim == 64
         assert head.value_dim == 2
+
+
+def test_precedence_config_and_boolean_masking() -> None:
+    """Verify PrecedenceConfig custom penalties and boolean -inf masking."""
+    from continuous_legal_memory.retrieval.precedence import (
+        PrecedenceConfig,
+        apply_legal_precedence,
+    )
+
+    scores = torch.tensor([[0.8, 0.7]])
+    rule_importance = torch.tensor([1.0, 1.0])
+    records = [
+        MemoryRecord(
+            record_id="sub",
+            text="Subordinate rule",
+            key_vector=torch.zeros(1, 4),
+            value_vector=torch.zeros(1, 2),
+            authority_rank=3,
+        ),
+        MemoryRecord(
+            record_id="sup",
+            text="Superior rule",
+            key_vector=torch.zeros(1, 4),
+            value_vector=torch.zeros(1, 2),
+            authority_rank=8,
+            metadata={"supersedes": "sub"},
+        ),
+    ]
+
+    # Test with boolean masking
+    cfg_mask = PrecedenceConfig(use_boolean_masking=True)
+    adj_mask = apply_legal_precedence(scores, rule_importance, records, config=cfg_mask)
+    assert adj_mask[0, 0].item() == -float("inf")
+    assert adj_mask[0, 1].item() == pytest.approx(0.7, abs=1e-5)
+
+    # Test with custom penalty
+    cfg_custom = PrecedenceConfig(superseded_penalty=50.0, use_boolean_masking=False)
+    adj_custom = apply_legal_precedence(scores, rule_importance, records, config=cfg_custom)
+    assert adj_custom[0, 0].item() == pytest.approx(0.8 - 50.0, abs=1e-5)

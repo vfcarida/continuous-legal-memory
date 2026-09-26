@@ -18,9 +18,9 @@ try:
     from llama_index.core.schema import NodeWithScore, TextNode
     _HAS_LLAMA_INDEX = True
 except ImportError:
-    _LlamaIndexBaseRetriever = object  # type: ignore[misc,assignment]
-    NodeWithScore = None  # type: ignore[assignment,misc]
-    TextNode = None  # type: ignore[assignment,misc]
+    _LlamaIndexBaseRetriever = object
+    NodeWithScore = None
+    TextNode = None
     _HAS_LLAMA_INDEX = False
 
 
@@ -91,7 +91,7 @@ class ContinuousLegalMemoryLlamaRetriever(_LlamaIndexBaseRetriever):
 
         results: list[Any] = []
         if result.most_relevant_rule:
-            meta = {
+            meta: dict[str, Any] = {
                 "tenant_id": self.tenant_id,
                 "predicted_action_vector": result.predicted_action_vector,
                 "fast_slow_gate": result.fast_slow_gate,

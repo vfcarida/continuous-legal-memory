@@ -9,6 +9,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
+from typing import cast
 
 import torch
 
@@ -147,7 +148,7 @@ class OllamaGemmaAdapter(BaseEncoderPort):
         seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:8], 16)
         generator = torch.Generator().manual_seed(seed)
         vec = torch.randn(self._embedding_dim, generator=generator)
-        return (vec / torch.norm(vec)).tolist()
+        return cast(list[float], (vec / torch.norm(vec)).tolist())
 
     def _is_local_endpoint(self, url: str) -> bool:
         """Check if URL host targets localhost loopback address."""

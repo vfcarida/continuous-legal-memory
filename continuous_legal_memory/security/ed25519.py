@@ -17,7 +17,7 @@ try:
     from cryptography.hazmat.primitives.asymmetric import ed25519 as _crypto_ed25519
     _HAS_CRYPTOGRAPHY = True
 except ImportError:
-    _crypto_ed25519 = None  # type: ignore[assignment]
+    _crypto_ed25519 = None
     _HAS_CRYPTOGRAPHY = False
 
 # RFC 8032 Ed25519 Curve Parameters
@@ -218,7 +218,7 @@ def public_key_from_private_key(private_key: bytes | str) -> bytes:
 
     if _HAS_CRYPTOGRAPHY and _crypto_ed25519 is not None:
         priv = _crypto_ed25519.Ed25519PrivateKey.from_private_bytes(sk)
-        return priv.public_key().public_bytes_raw()
+        return bytes(priv.public_key().public_bytes_raw())
 
     return _publickey_pure(sk)
 
@@ -240,7 +240,7 @@ def sign(message: bytes, private_key: bytes | str) -> bytes:
 
     if _HAS_CRYPTOGRAPHY and _crypto_ed25519 is not None:
         priv = _crypto_ed25519.Ed25519PrivateKey.from_private_bytes(sk)
-        return priv.sign(message)
+        return bytes(priv.sign(message))
 
     pk = _publickey_pure(sk)
     return _sign_pure(message, sk, pk)

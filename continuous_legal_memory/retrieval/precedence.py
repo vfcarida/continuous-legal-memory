@@ -8,17 +8,38 @@ Implements legal doctrine conflict resolution:
 3. Recency (lex posterior derogat legi priori) applied strictly within matching authority tiers.
 """
 
-from __future__ import annotations
+from dataclasses import dataclass
 
 import torch
 
 from continuous_legal_memory.domain.models import MemoryRecord, RelationType
 
 
+@dataclass
+class PrecedenceConfig:
+    """
+    Configuration parameters for legal precedence scoring and penalty calibration.
+
+    Attributes:
+        superseded_penalty: Logit penalty deducted for explicitly superseded statutes. Defaults to 1000.0.
+        subordinate_authority_penalty_scale: Scale factor multiplied by authority rank delta. Defaults to 20.0.
+        candidate_similarity_margin: Margin from max similarity to consider candidate relevant. Defaults to 0.35.
+        min_candidate_similarity: Minimum similarity required for candidate evaluation. Defaults to 0.15.
+        use_boolean_masking: If True, uses -inf for superseded records to avoid mixed-precision underflow. Defaults to False.
+    """
+
+    superseded_penalty: float = 1000.0
+    subordinate_authority_penalty_scale: float = 20.0
+    candidate_similarity_margin: float = 0.35
+    min_candidate_similarity: float = 0.15
+    use_boolean_masking: bool = False
+
+
 def apply_legal_precedence(
     scores: torch.Tensor,
     rule_importance: torch.Tensor,
     records: list[MemoryRecord] | None,
+    config: PrecedenceConfig | None = None,
 ) -> torch.Tensor:
     """
     Adjust retrieval scores according to explicit legal precedence and authority hierarchy.
@@ -27,10 +48,12 @@ def apply_legal_precedence(
         scores: 2D Tensor of shape (batch_size, num_keys) unscaled alignment similarities.
         rule_importance: 1D Tensor of shape (num_keys,) surprise-weighted importance factors.
         records: List of MemoryRecord objects corresponding to memory slots.
+        config: Optional PrecedenceConfig instance defining penalty constants.
 
     Returns:
         Adjusted scores Tensor of shape (batch_size, num_keys).
     """
+    cfg = config or PrecedenceConfig()
     scaled_scores = scores * rule_importance
 
     if not records or len(records) <= 1:
@@ -74,7 +97,10 @@ def apply_legal_precedence(
 
     # Suppress superseded records
     for idx in superseded_indices:
-        adjusted[:, idx] -= 1000.0
+        if cfg.use_boolean_masking:
+            adjusted[:, idx] = -float("inf")
+        else:
+            adjusted[:, idx] -= cfg.superseded_penalty
 
     # Apply authority hierarchy across candidate pools
     if has_different_ranks:
@@ -88,8 +114,8 @@ def apply_legal_precedence(
                 i
                 for i in range(len(records))
                 if i not in superseded_indices
-                and batch_scores[i].item() >= (max_sim - 0.35)
-                and batch_scores[i].item() > 0.15
+                and batch_scores[i].item() >= (max_sim - cfg.candidate_similarity_margin)
+                and batch_scores[i].item() > cfg.min_candidate_similarity
             ]
 
             if relevant_indices:
@@ -99,6 +125,6 @@ def apply_legal_precedence(
                         continue
                     if i in relevant_indices and ranks[i] < max_authority:
                         # Subordinate candidate cannot override superior authority
-                        adjusted[b, i] -= (max_authority - ranks[i]) * 20.0
+                        adjusted[b, i] -= (max_authority - ranks[i]) * cfg.subordinate_authority_penalty_scale
 
     return adjusted

@@ -51,7 +51,7 @@ class HuggingFaceEncoderAdapter(BaseEncoderPort):
                 payload={"model_name": model_name},
             ) from e
 
-        self._embedding_dim = self.model.config.hidden_size
+        self._embedding_dim: int = int(self.model.config.hidden_size)
 
     @property
     def embedding_dim(self) -> int:

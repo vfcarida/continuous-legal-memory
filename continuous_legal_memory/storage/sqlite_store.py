@@ -15,7 +15,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 
@@ -421,7 +421,7 @@ class SqliteMemoryStore(BaseMemoryStorePort):
     @staticmethod
     def _blob_to_tensor(blob: bytes) -> torch.Tensor:
         buf = io.BytesIO(blob)
-        return torch.load(buf, weights_only=True)
+        return cast(torch.Tensor, torch.load(buf, weights_only=True))
 
     @classmethod
     def _row_to_record(cls, row: sqlite3.Row) -> MemoryRecord:

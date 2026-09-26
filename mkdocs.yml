@@ -55,6 +55,11 @@ nav:
       - Memory Tiers: architecture/memory-tiers.md
       - Legal Precedence & Conflict Resolution: architecture/legal-precedence.md
       - GDPR Art. 17 Right to Erasure: architecture/gdpr-art17.md
+  - Integration Guides:
+      - LangChain Memory: guides/langchain-integration.md
+      - LlamaIndex Retriever: guides/llamaindex-integration.md
+      - HippoRAG Graph Diffusion: guides/hipporag-pagerank.md
+      - Multi-Tenancy & Partitioning: guides/multi-tenancy.md
   - API Reference:
       - Orchestrator: reference/api-orchestrator.md
       - Domain Models & Interfaces: reference/models-and-exceptions.md

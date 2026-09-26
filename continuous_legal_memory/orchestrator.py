@@ -7,10 +7,11 @@ Working Memory, Episodic Ledger, Semantic Knowledge Graph, and neural continuum 
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 
@@ -119,7 +120,9 @@ class LegalMemoryOrchestrator:
 
         # Multi-Tier Cognitive Memory System
         self.working_memory = WorkingMemory(capacity=10)
-        self.episodic_memory: EpisodicMemory = episodic_store if episodic_store is not None else EpisodicMemory()
+        self.episodic_memory: Any = (
+            episodic_store if episodic_store is not None else EpisodicMemory()
+        )
         self.semantic_graph = SemanticKnowledgeGraph()
 
         # Telemetry & Observability
@@ -187,7 +190,7 @@ class LegalMemoryOrchestrator:
                 personal_data,
                 tenant_id,
             )
-            return res
+            return cast(MemoryRecord, res)
         return self._execute_update_memory(
             rule_text, action_vector, valid_from, valid_to, metadata,
             authority_rank, jurisdiction, personal_data, tenant_id
@@ -318,7 +321,7 @@ class LegalMemoryOrchestrator:
                 if target and target in self.semantic_graph.nodes:
                     self.semantic_graph.add_edge(node_id, target, rel_type, weight, tenant_id=tenant)
 
-        return rec
+        return cast(MemoryRecord, rec)
 
     def predict(
         self,
@@ -350,6 +353,7 @@ class LegalMemoryOrchestrator:
                 at_time,
                 eff_tenant,
             )
+            result = cast(PredictionResult, result)
         else:
             result = self._execute_predict(query_text, at_time, eff_tenant)
 
@@ -543,7 +547,7 @@ class LegalMemoryOrchestrator:
         return self.semantic_graph.get_nodes(tenant_id=tenant_id)
 
     @contextmanager
-    def tenant(self, tenant_id: str):
+    def tenant(self, tenant_id: str) -> Iterator[str]:
         """
         Context manager scoping orchestrator actions to a specific tenant.
 
@@ -557,5 +561,42 @@ class LegalMemoryOrchestrator:
             yield tenant_id
         finally:
             self._current_tenant_id = prev_tenant
+
+    def associate_statutes(
+        self,
+        seed_nodes: list[str] | dict[str, float],
+        damping: float = 0.85,
+        max_results: int = 10,
+        tenant_id: str | None = None,
+        at_time: datetime | None = None,
+    ) -> list[tuple[GraphNode, float]]:
+        """
+        Execute HippoRAG-style Personalized PageRank over the Semantic Knowledge Graph to discover
+        multi-hop related legal entities and prerequisite clauses.
+
+        Args:
+            seed_nodes: List of seed node IDs or dict mapping node_id -> initial relevance weight.
+            damping: Teleportation damping factor (default 0.85).
+            max_results: Maximum number of ranked node results to return.
+            tenant_id: Optional tenant identifier. If omitted, uses active tenant context.
+            at_time: Temporal evaluation timestamp.
+
+        Returns:
+            List of (GraphNode, ppr_score) tuples ordered by associative relevance.
+        """
+        eff_tenant = tenant_id if tenant_id is not None else getattr(self, "_current_tenant_id", None)
+        scores = self.semantic_graph.personalized_pagerank(
+            seed_weights=seed_nodes,
+            damping=damping,
+            tenant_id=eff_tenant,
+            at_time=at_time,
+        )
+        results: list[tuple[GraphNode, float]] = []
+        for nid, score in scores.items():
+            if nid in self.semantic_graph.nodes:
+                results.append((self.semantic_graph.nodes[nid], score))
+            if len(results) >= max_results:
+                break
+        return results
 
 

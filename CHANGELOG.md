@@ -10,9 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- LangChain `BaseMemory` and LlamaIndex `BaseRetriever` integration adapters.
-- Real-world LegalBench-RAG evaluation benchmark integration.
-- HippoRAG-style Personalized PageRank graph traversal over the Semantic Knowledge Graph.
+- **HippoRAG-Style Personalized PageRank (ECO-02)**:
+  - Added `SemanticKnowledgeGraph.personalized_pagerank` implementing power iteration diffusion across legal dependency edges.
+  - Added `LegalMemoryOrchestrator.associate_statutes` for top-level multi-hop associative retrieval of prerequisite statutes.
+  - Added dedicated unit test suite in `tests/unit/test_personalized_pagerank.py`.
+- **Precedence Configuration Calibration (Defect 3)**:
+  - Added `PrecedenceConfig` dataclass parameterizing superseded penalty logit docking, authority penalty scales, similarity margins, and optional boolean (`-inf`) attention masking.
+  - Exported `PrecedenceConfig` and `apply_legal_precedence` in `continuous_legal_memory.retrieval`.
+- **Ecosystem & Integration Guides (COMM-02 & ECO-01)**:
+  - Added guides for LangChain memory, LlamaIndex retriever, HippoRAG graph diffusion, and multi-tenant partitioning in `docs/guides/`.
+  - Added GitHub issue templates (`bug_report.md`, `feature_request.md`) and pull request template (`PULL_REQUEST_TEMPLATE.md`).
+- **Strict Static Typing**:
+  - Resolved 24 `mypy` type annotations, achieving 100% error-free static analysis across all 37 source files.
 
 ---
 

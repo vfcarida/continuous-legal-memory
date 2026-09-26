@@ -5,6 +5,8 @@ This module provides the multi-layer perceptron (MLP) mapping high-dimensional k
 to low-dimensional decision vectors within the Continuum Memory System (CMS).
 """
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 
@@ -50,4 +52,4 @@ class MemoryMLP(nn.Module):
         Returns:
             PyTorch Tensor of shape (batch_size, output_dim).
         """
-        return self.net(x)
+        return cast(torch.Tensor, self.net(x))

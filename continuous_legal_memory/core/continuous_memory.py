@@ -31,6 +31,11 @@ class ContinuousMemory(nn.Module):
            preserving foundational legal principles and guarding against catastrophic forgetting.
     """
 
+    keys: torch.Tensor
+    values: torch.Tensor
+    rule_importance: torch.Tensor
+    surprise_momentum: torch.Tensor
+
     def __init__(self, embed_dim: int, value_dim: int = 2, hidden_dim: int = 64) -> None:
         """
         Initialize the ContinuousMemory system.
