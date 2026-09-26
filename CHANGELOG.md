@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **LegalBench-RAG Evaluation Benchmark Suite (ECO-03 / Phase 3)**:
+  - Added `LegalBenchEvaluator` and `LegalBenchRAGDataset` evaluating character-level snippet precision, recall, and hierarchical precedence resolution over real-world commercial contracts.
+  - Added comprehensive benchmark guide `docs/evaluation/legalbench.md` and registered it in `mkdocs.yml`.
+  - Added unit test suite in `tests/unit/test_legalbench_eval.py`.
 - **Letta (MemGPT) Agent Memory Integration (ECO-01 / Phase 3)**:
   - Added `ContinuousLegalMemoryBlock` providing dynamic context window compilation, token budgeting, and active directive summaries.
   - Added `create_letta_tools` exposing `legal_memory_search`, `legal_memory_insert`, and `legal_memory_associate` for autonomous LLM agent execution.

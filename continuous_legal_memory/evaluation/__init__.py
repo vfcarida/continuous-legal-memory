@@ -13,6 +13,13 @@ from continuous_legal_memory.evaluation.harness import (
     PlainRAGBaseline,
     TemporalStructuredBaseline,
 )
+from continuous_legal_memory.evaluation.legalbench_eval import (
+    LegalBenchClause,
+    LegalBenchEvaluator,
+    LegalBenchMetrics,
+    LegalBenchQuery,
+    LegalBenchRAGDataset,
+)
 
 __all__ = [
     "AgenticLegalEvaluator",
@@ -24,4 +31,9 @@ __all__ = [
     "NoMemoryBaseline",
     "PlainRAGBaseline",
     "TemporalStructuredBaseline",
+    "LegalBenchClause",
+    "LegalBenchEvaluator",
+    "LegalBenchMetrics",
+    "LegalBenchQuery",
+    "LegalBenchRAGDataset",
 ]

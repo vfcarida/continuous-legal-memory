@@ -67,4 +67,5 @@ nav:
       - Cryptographic Attestation: reference/attestation.md
   - Evaluation:
       - Benchmark Methodology: evaluation/methodology.md
+      - LegalBench-RAG Evaluation: evaluation/legalbench.md
       - Baseline Report: BASELINE.md
