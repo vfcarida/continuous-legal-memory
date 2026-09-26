@@ -47,6 +47,10 @@ class WorkingMemory:
         value_vector: torch.Tensor,
         metadata: dict | None = None,
         tenant_id: str | None = None,
+        authority_rank: int = 1,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
+        jurisdiction: str | None = None,
     ) -> MemoryRecord:
         """
         Add a new short-term interaction record to Working Memory.
@@ -58,6 +62,10 @@ class WorkingMemory:
             metadata: Optional metadata dictionary.
             tenant_id: Optional tenant identifier. If omitted, checks metadata['tenant_id']
                        or defaults to 'default'.
+            authority_rank: Hierarchical legal authority level (higher integer = higher authority).
+            valid_from: Optional datetime marking the start of temporal validity.
+            valid_to: Optional datetime marking expiration.
+            jurisdiction: Optional jurisdictional scope identifier.
 
         Returns:
             The created `MemoryRecord`.
@@ -80,6 +88,8 @@ class WorkingMemory:
             or (metadata.get("tenant") if metadata else None)
             or "default"
         )
+        auth_rank = metadata.get("authority_rank", authority_rank) if metadata else authority_rank
+        juris = metadata.get("jurisdiction", jurisdiction) if metadata else jurisdiction
 
         record = MemoryRecord(
             text=text,
@@ -88,6 +98,10 @@ class WorkingMemory:
             tier=MemoryTier.WORKING,
             metadata=metadata or {},
             tenant_id=tenant,
+            authority_rank=auth_rank,
+            valid_from=valid_from or datetime.now(timezone.utc),
+            valid_to=valid_to,
+            jurisdiction=juris,
         )
         self._records.append(record)
         return record

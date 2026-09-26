@@ -202,13 +202,19 @@ class ContinuousMemory(nn.Module):
         self.rule_importance = torch.cat([self.rule_importance[:index], self.rule_importance[index + 1:]], dim=0)
         self.texts.pop(index)
 
-    def rebuild_from_records(self, records: list[Any], seed: int | None = None) -> None:
+    def rebuild_from_records(
+        self,
+        records: list[Any],
+        seed: int | None = None,
+        skip_parametric: bool = False,
+    ) -> None:
         """
-        Reconstruct neural memory buffers and retrain parametric weights from a clean list of records.
+        Reconstruct neural memory buffers and optionally retrain parametric weights from clean records.
 
         Args:
             records: List of MemoryRecord instances to consolidate.
             seed: Optional random seed for reproducible network reinitialization.
+            skip_parametric: If True, updates buffer slots while bypassing inner-loop gradient descent.
         """
         if seed is not None:
             torch.manual_seed(seed)
@@ -228,7 +234,7 @@ class ContinuousMemory(nn.Module):
                 rec.key_vector,
                 rec.value_vector,
                 rec.text,
-                skip_parametric=rec.personal_data,
+                skip_parametric=rec.personal_data or skip_parametric,
                 authority_rank=rec.authority_rank,
             )
 

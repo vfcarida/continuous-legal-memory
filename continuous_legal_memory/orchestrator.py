@@ -7,6 +7,7 @@ Working Memory, Episodic Ledger, Semantic Knowledge Graph, and neural continuum 
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -142,6 +143,7 @@ class LegalMemoryOrchestrator:
             self.attestor = None
 
         self._current_tenant_id: str | None = None
+        self._lock = threading.RLock()
 
     def update_memory(
         self,
@@ -236,92 +238,97 @@ class LegalMemoryOrchestrator:
 
         val_tensor = torch.tensor([action_vector], dtype=torch.float32)
 
-        # 1. Adapt neural associative continuum memory
-        # In structured mode (default) or for personal data, bypass online gradient backprop on fast_net
-        skip_param = is_personal or (self.engine_mode == "structured")
-        self.hope_module.memory.add_memory(
-            key_embed,
-            val_tensor,
-            rule_text,
-            skip_parametric=skip_param,
-            authority_rank=auth_rank,
-        )
+        with self._lock:
+            # 1. Adapt neural associative continuum memory
+            # In structured mode (default) or for personal data, bypass online gradient backprop on fast_net
+            skip_param = is_personal or (self.engine_mode == "structured")
+            self.hope_module.memory.add_memory(
+                key_embed,
+                val_tensor,
+                rule_text,
+                skip_parametric=skip_param,
+                authority_rank=auth_rank,
+            )
 
-        # 2. Record in Episodic Memory ledger
-        if hasattr(self.episodic_memory, "append"):
-            rec = self.episodic_memory.append(
+            # 2. Record in Episodic Memory ledger
+            if hasattr(self.episodic_memory, "append"):
+                rec = self.episodic_memory.append(
+                    text=rule_text,
+                    key_vector=key_embed,
+                    value_vector=val_tensor,
+                    valid_from=valid_from,
+                    valid_to=valid_to,
+                    metadata=metadata,
+                    authority_rank=auth_rank,
+                    jurisdiction=juris,
+                    personal_data=is_personal,
+                    tenant_id=tenant,
+                )
+            else:
+                rec = MemoryRecord(
+                    text=rule_text,
+                    key_vector=key_embed,
+                    value_vector=val_tensor,
+                    valid_from=valid_from or datetime.now(timezone.utc),
+                    valid_to=valid_to,
+                    metadata=metadata or {},
+                    authority_rank=auth_rank,
+                    jurisdiction=juris,
+                    personal_data=is_personal,
+                    tenant_id=tenant,
+                )
+                self.episodic_memory.add_record(rec)
+
+            # 3. Add to Working Memory
+            self.working_memory.add(
                 text=rule_text,
                 key_vector=key_embed,
                 value_vector=val_tensor,
+                metadata=metadata,
+                tenant_id=tenant,
+                authority_rank=auth_rank,
                 valid_from=valid_from,
                 valid_to=valid_to,
-                metadata=metadata,
-                authority_rank=auth_rank,
                 jurisdiction=juris,
-                personal_data=is_personal,
-                tenant_id=tenant,
             )
-        else:
-            rec = MemoryRecord(
-                text=rule_text,
-                key_vector=key_embed,
-                value_vector=val_tensor,
-                valid_from=valid_from or datetime.now(timezone.utc),
+
+            # 4. Ingest into Semantic Knowledge Graph
+            entity_type = EntityType.STATUTE
+            if metadata and "entity_type" in metadata:
+                raw_et = metadata["entity_type"]
+                if isinstance(raw_et, EntityType):
+                    entity_type = raw_et
+                elif isinstance(raw_et, str):
+                    try:
+                        entity_type = EntityType(raw_et)
+                    except ValueError:
+                        entity_type = EntityType.STATUTE
+
+            node_id = str(metadata.get("node_id")) if (metadata and "node_id" in metadata) else (rec.record_id or f"node_{len(self.semantic_graph.nodes) + 1}")
+            label = metadata.get("label", rule_text[:30]) if metadata else rule_text[:30]
+
+            self.semantic_graph.add_node(
+                node_id=node_id,
+                entity_type=entity_type,
+                label=label,
+                description=rule_text,
+                embedding=key_embed,
+                valid_from=valid_from,
                 valid_to=valid_to,
-                metadata=metadata or {},
-                authority_rank=auth_rank,
-                jurisdiction=juris,
-                personal_data=is_personal,
                 tenant_id=tenant,
             )
-            self.episodic_memory.add_record(rec)
 
-        # 3. Add to Working Memory
-        self.working_memory.add(
-            text=rule_text,
-            key_vector=key_embed,
-            value_vector=val_tensor,
-            metadata=metadata,
-            tenant_id=tenant,
-        )
+            if metadata and "relations" in metadata:
+                for rel in metadata["relations"]:
+                    target = rel.get("target_id")
+                    rel_type = rel.get("relation_type", RelationType.DEPENDS_ON)
+                    if isinstance(rel_type, str):
+                        rel_type = RelationType(rel_type)
+                    weight = rel.get("weight", 1.0)
+                    if target and target in self.semantic_graph.nodes:
+                        self.semantic_graph.add_edge(node_id, target, rel_type, weight, tenant_id=tenant)
 
-        # 4. Ingest into Semantic Knowledge Graph
-        entity_type = EntityType.STATUTE
-        if metadata and "entity_type" in metadata:
-            raw_et = metadata["entity_type"]
-            if isinstance(raw_et, EntityType):
-                entity_type = raw_et
-            elif isinstance(raw_et, str):
-                try:
-                    entity_type = EntityType(raw_et)
-                except ValueError:
-                    entity_type = EntityType.STATUTE
-
-        node_id = str(metadata.get("node_id")) if (metadata and "node_id" in metadata) else (rec.record_id or f"node_{len(self.semantic_graph.nodes) + 1}")
-        label = metadata.get("label", rule_text[:30]) if metadata else rule_text[:30]
-
-        self.semantic_graph.add_node(
-            node_id=node_id,
-            entity_type=entity_type,
-            label=label,
-            description=rule_text,
-            embedding=key_embed,
-            valid_from=valid_from,
-            valid_to=valid_to,
-            tenant_id=tenant,
-        )
-
-        if metadata and "relations" in metadata:
-            for rel in metadata["relations"]:
-                target = rel.get("target_id")
-                rel_type = rel.get("relation_type", RelationType.DEPENDS_ON)
-                if isinstance(rel_type, str):
-                    rel_type = RelationType(rel_type)
-                weight = rel.get("weight", 1.0)
-                if target and target in self.semantic_graph.nodes:
-                    self.semantic_graph.add_edge(node_id, target, rel_type, weight, tenant_id=tenant)
-
-        return cast(MemoryRecord, rec)
+            return cast(MemoryRecord, rec)
 
     def predict(
         self,
@@ -372,10 +379,6 @@ class LegalMemoryOrchestrator:
         if not isinstance(query_text, str) or len(query_text.strip()) == 0:
             raise InvalidMemoryVectorError("Query text must be a non-empty string.")
 
-        eval_time = at_time or datetime.now(timezone.utc)
-        valid_indices = self.episodic_memory.get_valid_indices(eval_time, tenant_id=tenant_id)
-        valid_records = self.episodic_memory.get_valid_records(eval_time, tenant_id=tenant_id)
-
         try:
             query_embed = self.encoder.get_embedding([query_text])
         except Exception as e:
@@ -383,25 +386,31 @@ class LegalMemoryOrchestrator:
                 raise
             raise EncoderInferenceError(f"Failed to generate embedding for query text: {e}") from e
 
-        # If no valid records are present, return an empty-memory zero vector result
-        if not valid_indices:
-            return PredictionResult(
-                query=query_text,
-                predicted_action_vector=[0.0] * self.value_dim,
-                fast_slow_gate=None,
-                source_tier=MemoryTier.SEMANTIC if self.semantic_graph.nodes else MemoryTier.EPISODIC,
-                most_relevant_rule=None,
-                confidence=None,
-                attention_weights=None,
-                tenant_id=tenant_id or "default",
-            )
+        eval_time = at_time or datetime.now(timezone.utc)
 
-        predicted_action, attention_weights, fast_slow_gate = self.hope_module(
-            query_embed,
-            valid_indices=valid_indices,
-            query_text=query_text,
-            records=valid_records,
-        )
+        with self._lock:
+            valid_indices = self.episodic_memory.get_valid_indices(eval_time, tenant_id=tenant_id)
+            valid_records = self.episodic_memory.get_valid_records(eval_time, tenant_id=tenant_id)
+
+            # If no valid records are present, return an empty-memory zero vector result
+            if not valid_indices:
+                return PredictionResult(
+                    query=query_text,
+                    predicted_action_vector=[0.0] * self.value_dim,
+                    fast_slow_gate=None,
+                    source_tier=MemoryTier.SEMANTIC if self.semantic_graph.nodes else MemoryTier.EPISODIC,
+                    most_relevant_rule=None,
+                    confidence=None,
+                    attention_weights=None,
+                    tenant_id=tenant_id or "default",
+                )
+
+            predicted_action, attention_weights, fast_slow_gate = self.hope_module(
+                query_embed,
+                valid_indices=valid_indices,
+                query_text=query_text,
+                records=valid_records,
+            )
 
         pred_action_list = predicted_action.squeeze().tolist()
         if isinstance(pred_action_list, float):
@@ -455,63 +464,68 @@ class LegalMemoryOrchestrator:
         Raises:
             KeyError: If record_id is not found in the episodic ledger or tenant mismatch.
         """
-        deleted_rec = None
-        for rec in self.episodic_memory.get_records():
-            if rec.record_id == record_id:
-                deleted_rec = rec
-                break
+        with self._lock:
+            deleted_rec = None
+            for rec in self.episodic_memory.get_records():
+                if rec.record_id == record_id:
+                    deleted_rec = rec
+                    break
 
-        if deleted_rec is None:
-            raise KeyError(f"Rule with ID '{record_id}' not found in episodic ledger.")
+            if deleted_rec is None:
+                raise KeyError(f"Rule with ID '{record_id}' not found in episodic ledger.")
 
-        if tenant_id is not None and deleted_rec.tenant_id != tenant_id:
-            raise KeyError(f"Rule with ID '{record_id}' does not belong to tenant '{tenant_id}'.")
+            if tenant_id is not None and deleted_rec.tenant_id != tenant_id:
+                raise KeyError(f"Rule with ID '{record_id}' does not belong to tenant '{tenant_id}'.")
 
-        # 1. Delete from Episodic Memory (records tombstone in hash chain)
-        if hasattr(self.episodic_memory, "delete_record"):
-            self.episodic_memory.delete_record(record_id)
-        else:
-            self.episodic_memory.record_tombstone(record_id)
+            # 1. Delete from Episodic Memory (records tombstone in hash chain)
+            if hasattr(self.episodic_memory, "delete_record"):
+                self.episodic_memory.delete_record(record_id)
+            else:
+                self.episodic_memory.record_tombstone(record_id)
 
-        # 2. Clear from Working Memory
-        self.working_memory.remove_by_text(deleted_rec.text, tenant_id=deleted_rec.tenant_id)
+            # 2. Clear from Working Memory
+            self.working_memory.remove_by_text(deleted_rec.text, tenant_id=deleted_rec.tenant_id)
 
-        # 3. Clear from Semantic Knowledge Graph
-        matching_nodes = [
-            nid for nid, node in self.semantic_graph.nodes.items()
-            if (nid == record_id or node.description == deleted_rec.text)
-            and getattr(node, "tenant_id", "default") == deleted_rec.tenant_id
-        ]
-        for nid in matching_nodes:
-            self.semantic_graph.remove_node(nid, tenant_id=deleted_rec.tenant_id)
+            # 3. Clear from Semantic Knowledge Graph
+            matching_nodes = [
+                nid for nid, node in self.semantic_graph.nodes.items()
+                if (nid == record_id or node.description == deleted_rec.text)
+                and getattr(node, "tenant_id", "default") == deleted_rec.tenant_id
+            ]
+            for nid in matching_nodes:
+                self.semantic_graph.remove_node(nid, tenant_id=deleted_rec.tenant_id)
 
-        # 4. Clear from Retrieval Buffers
-        buf_idx = None
-        for i, txt in enumerate(self.hope_module.memory.texts):
-            if txt == deleted_rec.text:
-                buf_idx = i
-                break
-        if buf_idx is not None:
-            self.hope_module.memory.delete_buffer_index(buf_idx)
+            # 4. Clear from Retrieval Buffers
+            buf_idx = None
+            for i, txt in enumerate(self.hope_module.memory.texts):
+                if txt == deleted_rec.text:
+                    buf_idx = i
+                    break
+            if buf_idx is not None:
+                self.hope_module.memory.delete_buffer_index(buf_idx)
 
-        # 5. Parametric influence cleanup / re-consolidation
-        parametric_rebuilt = False
-        if not deleted_rec.personal_data:
-            retained = self.episodic_memory.get_records()
-            self.hope_module.memory.rebuild_from_records(retained, seed=self.seed)
-            parametric_rebuilt = True
+            # 5. Parametric influence cleanup / re-consolidation
+            parametric_rebuilt = False
+            if not deleted_rec.personal_data and self.engine_mode != "structured":
+                retained = self.episodic_memory.get_records()
+                self.hope_module.memory.rebuild_from_records(
+                    retained,
+                    seed=self.seed,
+                    skip_parametric=False,
+                )
+                parametric_rebuilt = True
 
-        tombstone = self.episodic_memory._hash_chain[-1] if self.episodic_memory._hash_chain else ""
+            tombstone = self.episodic_memory._hash_chain[-1] if self.episodic_memory._hash_chain else ""
 
-        return {
-            "record_id": record_id,
-            "deleted_at": datetime.now(timezone.utc).isoformat(),
-            "tombstone_hash": tombstone,
-            "personal_data": deleted_rec.personal_data,
-            "status": "ERASED",
-            "tiers_cleared": ["working", "episodic", "semantic", "neural_buffer"],
-            "parametric_rebuilt": parametric_rebuilt,
-        }
+            return {
+                "record_id": record_id,
+                "deleted_at": datetime.now(timezone.utc).isoformat(),
+                "tombstone_hash": tombstone,
+                "personal_data": deleted_rec.personal_data,
+                "status": "ERASED",
+                "tiers_cleared": ["working", "episodic", "semantic", "neural_buffer"],
+                "parametric_rebuilt": parametric_rebuilt,
+            }
 
     def save_to_disk(self, db_path: str | Path) -> None:
         """Persist complete multi-tier state and model weights to a SQLite database."""

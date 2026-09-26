@@ -408,6 +408,11 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     key_vector=rec.key_vector,
                     value_vector=rec.value_vector,
                     metadata=rec.metadata,
+                    tenant_id=rec.tenant_id,
+                    authority_rank=rec.authority_rank,
+                    valid_from=rec.valid_from,
+                    valid_to=rec.valid_to,
+                    jurisdiction=rec.jurisdiction,
                 )
 
     # --- Serialization Helpers ---

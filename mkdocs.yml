@@ -58,6 +58,7 @@ nav:
   - Integration Guides:
       - LangChain Memory: guides/langchain-integration.md
       - LlamaIndex Retriever: guides/llamaindex-integration.md
+      - Letta (MemGPT) Memory: guides/letta-integration.md
       - HippoRAG Graph Diffusion: guides/hipporag-pagerank.md
       - Multi-Tenancy & Partitioning: guides/multi-tenancy.md
   - API Reference:

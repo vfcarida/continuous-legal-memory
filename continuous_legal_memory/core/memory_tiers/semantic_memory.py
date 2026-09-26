@@ -399,6 +399,8 @@ class SemanticKnowledgeGraph:
         if total_seed_weight > 0:
             p_teleport = [seed_dict.get(nid, 0.0) / total_seed_weight for nid in node_ids]
         else:
+            if len(seed_weights) > 0:
+                return {}
             p_teleport = [1.0 / n_nodes] * n_nodes
 
         # Build adjacency matrix and out-degree sums

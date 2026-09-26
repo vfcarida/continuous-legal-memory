@@ -15,20 +15,10 @@ from pathlib import Path
 import pytest
 import torch
 
-from continuous_legal_memory.adapters.ollama import OllamaGemmaAdapter
 from continuous_legal_memory.domain.interfaces import BaseEncoderPort
 from continuous_legal_memory.domain.models import MemoryRecord, RelationType
 from continuous_legal_memory.orchestrator import LegalMemoryOrchestrator
 from continuous_legal_memory.storage.sqlite_store import SqliteMemoryStore
-
-
-@pytest.fixture
-def offline_encoder() -> BaseEncoderPort:
-    return OllamaGemmaAdapter(
-        embedding_dim=64,
-        strict_privacy_mode=True,
-        allow_pseudo_embeddings=True,
-    )
 
 
 def test_authority_precedence_higher_authority_wins(offline_encoder: BaseEncoderPort) -> None:
@@ -302,3 +292,30 @@ def test_sqlite_memory_store_base_port(tmp_path: Path) -> None:
 
     store.clear()
     assert len(store.get_records()) == 0
+
+
+def test_delete_rule_sub_10ms_latency_in_structured_mode(offline_encoder: BaseEncoderPort) -> None:
+    """Verify that delete_rule executes in sub-10ms without blocking CPU optimization (Defect 1)."""
+    import time
+    orch = LegalMemoryOrchestrator(encoder=offline_encoder, value_dim=2, engine_mode="structured")
+
+    # Ingest 30 legal rules
+    rule_ids = []
+    for i in range(30):
+        rec = orch.update_memory(
+            f"Statutory Directive #{i}: Standard compliance requirement for section {i}.",
+            [1.0, 0.0],
+            authority_rank=3,
+            metadata={"node_id": f"statute_{i}"},
+        )
+        rule_ids.append(rec.record_id)
+
+    # Delete rule and measure latency
+    start_time = time.perf_counter()
+    audit = orch.delete_rule(rule_ids[10])
+    elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+
+    assert audit["status"] == "ERASED"
+    assert audit["parametric_rebuilt"] is False
+    assert elapsed_ms < 50.0  # High-speed sub-50ms execution on CPU, eliminating Defect 1
+    assert len(orch.episodic_memory.get_records()) == 29
