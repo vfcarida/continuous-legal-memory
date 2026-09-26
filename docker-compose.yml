@@ -1,0 +1,26 @@
+services:
+  clm-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: continuous-legal-memory:latest
+    container_name: clm-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - CLM_ATTESTATION_SECRET=change-this-in-production-to-a-secure-secret
+    volumes:
+      - clm-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  clm-data:
+    driver: local

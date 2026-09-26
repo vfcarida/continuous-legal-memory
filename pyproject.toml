@@ -25,6 +25,9 @@ dependencies = [
     "typing-extensions>=4.5.0",
 ]
 
+[project.scripts]
+clm = "continuous_legal_memory.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",

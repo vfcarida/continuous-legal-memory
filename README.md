@@ -122,6 +122,13 @@ pip install -e .
 
 # Developer installation
 pip install -e .[dev]
+
+# CLI Verification
+clm --help
+clm serve --host 127.0.0.1 --port 8000 --mock-encoder
+
+# Container Deployment
+docker compose up -d
 ```
 
 ---

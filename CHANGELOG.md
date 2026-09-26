@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **REST API Microservice Server (Phase 3 / Deployment)**:
+  - Added lightweight, multi-threaded JSON REST API server (`continuous_legal_memory/server.py`) using standard library `ThreadingHTTPServer` with zero runtime external web dependencies.
+  - Implemented endpoints: `GET /health`, `GET /metrics`, `POST /v1/rules`, `POST /v1/predict`, `DELETE /v1/rules/{id}`, `GET /v1/context`, `GET /v1/graph`, `POST /v1/associate`, `POST /v1/attestation/verify`, `POST /v1/persist`, and `POST /v1/restore`.
+  - Added comprehensive HTTP integration test suite in `tests/unit/test_server.py`.
+- **Command-Line Interface (CLI / Tooling)**:
+  - Added unified `clm` CLI executable registered under `[project.scripts]` in `pyproject.toml`.
+  - Implemented subcommands: `serve`, `ingest`, `query`, `erase`, `associate`, `verify`, and `evaluate`.
+  - Added comprehensive CLI test suite in `tests/unit/test_cli.py`.
+- **Containerization & Docker Deployment**:
+  - Added production-grade multi-stage `Dockerfile` with non-root security context (`USER clm:clm`, UID 10001), `/data` persistent volume, and automatic healthcheck.
+  - Added `docker-compose.yml` for turnkey container orchestration.
+  - Added `.dockerignore` for minimal build context transfer.
+- **Prometheus OpenMetrics Telemetry Exporter**:
+  - Added `export_prometheus_metrics` in `continuous_legal_memory/telemetry/observability.py` exposing cognitive tier gauges and operation duration counters.
+  - Added unit test suite in `tests/unit/test_telemetry.py`.
+- **Offline Mock Encoder**:
+  - Added `SemanticMockEncoder` in `continuous_legal_memory/adapters/mock_encoder.py` for deterministic, zero-network associative testing and CLI evaluation.
+- **Deployment & CLI Documentation**:
+  - Added `docs/deployment/docker-and-api.md` and `docs/reference/cli.md` and integrated them into `mkdocs.yml`.
 - **LegalBench-RAG Evaluation Benchmark Suite (ECO-03 / Phase 3)**:
   - Added `LegalBenchEvaluator` and `LegalBenchRAGDataset` evaluating character-level snippet precision, recall, and hierarchical precedence resolution over real-world commercial contracts.
   - Added comprehensive benchmark guide `docs/evaluation/legalbench.md` and registered it in `mkdocs.yml`.

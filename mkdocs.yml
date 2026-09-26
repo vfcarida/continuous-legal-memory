@@ -61,8 +61,11 @@ nav:
       - Letta (MemGPT) Memory: guides/letta-integration.md
       - HippoRAG Graph Diffusion: guides/hipporag-pagerank.md
       - Multi-Tenancy & Partitioning: guides/multi-tenancy.md
+  - Deployment & Operations:
+      - REST API & Docker: deployment/docker-and-api.md
   - API Reference:
       - Orchestrator: reference/api-orchestrator.md
+      - Command-Line Interface (CLI): reference/cli.md
       - Domain Models & Interfaces: reference/models-and-exceptions.md
       - Cryptographic Attestation: reference/attestation.md
   - Evaluation:

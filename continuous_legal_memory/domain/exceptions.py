@@ -90,3 +90,8 @@ class InvalidMemoryVectorError(LegalMemoryError):
         Guarantees input tensor integrity before executing PyTorch neural matrix operations, avoiding silent NaN or shape mismatch errors.
     """
     pass
+
+
+# Backward-compatibility alias
+ContinuousLegalMemoryError = LegalMemoryError
+
