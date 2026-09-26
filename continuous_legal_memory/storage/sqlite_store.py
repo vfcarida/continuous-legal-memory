@@ -105,9 +105,15 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     embedding BLOB,
                     valid_from TEXT NOT NULL,
                     valid_to TEXT,
-                    decay_factor REAL NOT NULL
+                    decay_factor REAL NOT NULL,
+                    tenant_id TEXT NOT NULL DEFAULT 'default'
                 )
             """)
+            cursor.execute("PRAGMA table_info(semantic_nodes)")
+            snode_cols = [row[1] for row in cursor.fetchall()]
+            if "tenant_id" not in snode_cols:
+                cursor.execute("ALTER TABLE semantic_nodes ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_semantic_nodes_tenant ON semantic_nodes(tenant_id)")
 
             # 4. Semantic Graph Edges Table
             cursor.execute("""
@@ -115,9 +121,16 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     source_id TEXT NOT NULL,
                     target_id TEXT NOT NULL,
                     relation_type TEXT NOT NULL,
-                    weight REAL NOT NULL
+                    weight REAL NOT NULL,
+                    tenant_id TEXT NOT NULL DEFAULT 'default'
                 )
             """)
+            cursor.execute("PRAGMA table_info(semantic_edges)")
+            sedge_cols = [row[1] for row in cursor.fetchall()]
+            if "tenant_id" not in sedge_cols:
+                cursor.execute("ALTER TABLE semantic_edges ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_semantic_edges_tenant ON semantic_edges(tenant_id)")
+
 
             # 5. Neural State Table
             cursor.execute("""
@@ -258,7 +271,7 @@ class SqliteMemoryStore(BaseMemoryStorePort):
             for node in orchestrator.semantic_graph.nodes.values():
                 emb_blob = self._tensor_to_blob(node.embedding) if node.embedding is not None else None
                 cursor.execute("""
-                    INSERT INTO semantic_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO semantic_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     node.node_id,
                     node.entity_type.value if hasattr(node.entity_type, "value") else str(node.entity_type),
@@ -268,16 +281,18 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     node.valid_from.isoformat(),
                     node.valid_to.isoformat() if node.valid_to else None,
                     node.decay_factor,
+                    getattr(node, "tenant_id", "default"),
                 ))
 
             for edge in orchestrator.semantic_graph.edges:
                 cursor.execute("""
-                    INSERT INTO semantic_edges VALUES (?, ?, ?, ?)
+                    INSERT INTO semantic_edges VALUES (?, ?, ?, ?, ?)
                 """, (
                     edge.source_id,
                     edge.target_id,
                     edge.relation_type.value if hasattr(edge.relation_type, "value") else str(edge.relation_type),
                     edge.weight,
+                    getattr(edge, "tenant_id", "default"),
                 ))
 
             # 6. Neural Continuum State & Weights
@@ -329,7 +344,9 @@ class SqliteMemoryStore(BaseMemoryStorePort):
             cursor.execute("SELECT * FROM semantic_nodes")
             orchestrator.semantic_graph.nodes.clear()
             for row in cursor.fetchall():
+                row_dict = dict(row)
                 emb = self._blob_to_tensor(row["embedding"]) if row["embedding"] else None
+                node_tenant = row_dict.get("tenant_id", "default")
                 node = GraphNode(
                     node_id=row["node_id"],
                     entity_type=EntityType(row["entity_type"]),
@@ -339,19 +356,26 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     valid_from=datetime.fromisoformat(row["valid_from"]),
                     valid_to=datetime.fromisoformat(row["valid_to"]) if row["valid_to"] else None,
                     decay_factor=row["decay_factor"],
+                    tenant_id=node_tenant,
                 )
                 orchestrator.semantic_graph.nodes[node.node_id] = node
 
             cursor.execute("SELECT * FROM semantic_edges")
             orchestrator.semantic_graph.edges.clear()
             for row in cursor.fetchall():
+                edge_dict = dict(row)
+                edge_tenant = edge_dict.get("tenant_id", "default")
                 edge = GraphEdge(
                     source_id=row["source_id"],
                     target_id=row["target_id"],
                     relation_type=RelationType(row["relation_type"]),
                     weight=row["weight"],
+                    tenant_id=edge_tenant,
                 )
                 orchestrator.semantic_graph.edges.append(edge)
+
+
+
 
             # 5. Restore Neural Continuum State
             cursor.execute("SELECT key, tensor_blob, meta_text FROM neural_state")

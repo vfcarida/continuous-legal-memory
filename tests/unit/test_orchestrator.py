@@ -2,33 +2,54 @@
 Unit tests for LegalMemoryOrchestrator and core Continuum Memory System operations.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
+import torch.nn as nn
 
+from continuous_legal_memory.adapters.encoders import HuggingFaceEncoderAdapter
 from continuous_legal_memory.domain.exceptions import InvalidMemoryVectorError
+from continuous_legal_memory.domain.interfaces import BaseEncoderPort
 from continuous_legal_memory.orchestrator import LegalMemoryOrchestrator
+from tests.conftest import SemanticMockEncoder
 
 
-@pytest.fixture(scope="module")
-def shared_orchestrator() -> LegalMemoryOrchestrator:
-    """Initialize a single shared orchestrator instance to optimize HuggingFace model loading."""
-    return LegalMemoryOrchestrator(value_dim=2)
+@pytest.fixture
+def shared_orchestrator(offline_encoder: BaseEncoderPort) -> LegalMemoryOrchestrator:
+    """Initialize an orchestrator instance using the fast offline mock encoder."""
+    return LegalMemoryOrchestrator(value_dim=2, encoder=offline_encoder)
 
 
-def test_01_model_weights_are_frozen(shared_orchestrator: LegalMemoryOrchestrator) -> None:
+def test_01_model_weights_are_frozen() -> None:
     """
-    Verify that all parameters inside the base HuggingFace BERT model have requires_grad set to False,
+    Verify that all parameters inside the base HuggingFace transformer model have requires_grad set to False,
     strictly complying with zero-backpropagation constraints on the base encoder.
+    Uses a mocked HuggingFace transformer to ensure zero-network, sub-second test execution.
     """
-    adapter = shared_orchestrator.encoder
-    for name, param in adapter.model.named_parameters():
-        assert not param.requires_grad, f"Parameter {name} is not frozen!"
+    class DummyHFModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.linear = nn.Linear(32, 32)
+            self.config = MagicMock()
+            self.config.hidden_size = 32
+
+    dummy_model = DummyHFModel()
+    assert any(p.requires_grad for p in dummy_model.parameters()), "Initial mock parameters should require grad."
+
+    with (
+        patch("transformers.AutoTokenizer.from_pretrained", return_value=MagicMock()),
+        patch("transformers.AutoModel.from_pretrained", return_value=dummy_model),
+    ):
+        adapter = HuggingFaceEncoderAdapter("dummy-model-test")
+        for name, param in adapter.model.named_parameters():
+            assert not param.requires_grad, f"Parameter {name} is not frozen!"
 
 
-def test_02_empty_memory_edge_case() -> None:
+def test_02_empty_memory_edge_case(offline_encoder: BaseEncoderPort) -> None:
     """
     Verify that requesting predictions when memory is empty returns a clean, zeroed vector.
     """
-    empty_orchestrator = LegalMemoryOrchestrator(value_dim=2)
+    empty_orchestrator = LegalMemoryOrchestrator(value_dim=2, encoder=offline_encoder)
     res = empty_orchestrator.predict("Query with no stored rules")
     assert res.predicted_action_vector == [0.0, 0.0]
     assert res.most_relevant_rule is None
@@ -52,12 +73,17 @@ def test_03_input_validation_and_safety(shared_orchestrator: LegalMemoryOrchestr
         shared_orchestrator.update_memory("", [1.0, 0.0])  # Empty rule text
 
 
-def test_04_surprise_momentum_tracking() -> None:
+def test_04_surprise_momentum_tracking(semantic_mock_encoder: SemanticMockEncoder) -> None:
     """
     Validate that consecutive consistent rules produce low surprise values,
     while conflicting inputs trigger a spike in the surprise tracker.
     """
-    track_orchestrator = LegalMemoryOrchestrator(value_dim=2)
+    track_orchestrator = LegalMemoryOrchestrator(
+        value_dim=2,
+        encoder=semantic_mock_encoder,
+        seed=42,
+        engine_mode="hybrid",
+    )
     action_delete = [1.0, 0.0]
     action_retain = [0.0, 1.0]
 
@@ -75,7 +101,7 @@ def test_04_surprise_momentum_tracking() -> None:
     assert updated_surprise > initial_surprise, "Surprise momentum did not increase on conflicting rule!"
 
 
-def test_05_decision_override_and_catastrophic_forgetting() -> None:
+def test_05_decision_override_and_catastrophic_forgetting(semantic_mock_encoder: SemanticMockEncoder) -> None:
     """
     Verify full legal override workflow:
     1. Base rules mandate data DELETION ([1.0, 0.0]).
@@ -84,7 +110,12 @@ def test_05_decision_override_and_catastrophic_forgetting() -> None:
     4. Credit query now predicts RETAIN.
     5. Non-credit general query still predicts DELETION (no catastrophic forgetting).
     """
-    eval_orchestrator = LegalMemoryOrchestrator(value_dim=2)
+    eval_orchestrator = LegalMemoryOrchestrator(
+        value_dim=2,
+        encoder=semantic_mock_encoder,
+        seed=42,
+        engine_mode="hybrid",
+    )
     action_delete = [1.0, 0.0]
     action_retain = [0.0, 1.0]
 
@@ -116,3 +147,4 @@ def test_05_decision_override_and_catastrophic_forgetting() -> None:
     # Verify general query still predicts DELETION (guarding against catastrophic forgetting)
     res_after_general = eval_orchestrator.predict(general_query)
     assert res_after_general.predicted_action_vector[0] > res_after_general.predicted_action_vector[1]
+

@@ -167,6 +167,43 @@ def test_adversarial_evaluations(dataset: BenchmarkDataset, token_encoder: Deter
     assert 0.0 <= leakage <= 1.0
 
 
+def test_harness_report_formatting_fast(dataset: BenchmarkDataset, token_encoder: DeterministicTokenEncoder) -> None:
+    """Fast unit test verifying report formatting and metrics dictionary generation without running full benchmark."""
+    harness = EvaluationHarness(dataset, token_encoder)
+    mock_results = {
+        "metadata": dataset.metadata,
+        "num_seeds": 1,
+        "baselines": {
+            "NoMemory": {"overall_accuracy": "0.235 ± 0.000", "override_accuracy": "0.333 ± 0.000", "authority_correctness": "0.200 ± 0.000", "forgetting_bwt": "+0.000 ± 0.000", "stale_recall_rate": "0.600 ± 0.000"},
+            "BoundedHistory": {"overall_accuracy": "0.765 ± 0.000", "override_accuracy": "0.667 ± 0.000", "authority_correctness": "0.800 ± 0.000", "forgetting_bwt": "+0.000 ± 0.000", "stale_recall_rate": "0.400 ± 0.000"},
+            "PlainRAG": {"overall_accuracy": "0.794 ± 0.000", "override_accuracy": "0.667 ± 0.000", "authority_correctness": "0.600 ± 0.000", "forgetting_bwt": "+0.000 ± 0.000", "stale_recall_rate": "0.600 ± 0.000"},
+            "TemporalStructured": {"overall_accuracy": "0.853 ± 0.000", "override_accuracy": "0.667 ± 0.000", "authority_correctness": "0.600 ± 0.000", "forgetting_bwt": "+0.000 ± 0.000", "stale_recall_rate": "0.200 ± 0.000"},
+            "HybridMemory": {"overall_accuracy": "0.760 ± 0.045", "override_accuracy": "0.433 ± 0.213", "authority_correctness": "0.540 ± 0.092", "forgetting_bwt": "+0.110 ± 0.118", "stale_recall_rate": "0.250 ± 0.087"},
+        },
+        "ablations": {
+            "Ablation_RetrievalOnly": {"overall_accuracy": "0.853 ± 0.000", "override_accuracy": "0.667 ± 0.000", "authority_correctness": "0.600 ± 0.000"},
+        },
+        "adversarial": {
+            "poisoning_attack_success_rate": {"PlainRAG": "33.33%", "TemporalStructured": "0.00%", "HybridMemory": "0.00%"},
+            "multi_tenant_leakage_rate": {"PlainRAG": "100.00%", "TemporalStructured": "0.00%", "HybridMemory": "100.00%", "status": "VULNERABLE"},
+        },
+        "go_no_go": {
+            "delta_accuracy_over_structured": "-0.093",
+            "backward_transfer_bwt": "+0.110",
+            "poisoning_asr": "0.00%",
+            "decision": "NO-GO",
+            "rationale": "Parametric head does not outperform deterministic structured retrieval.",
+        },
+    }
+
+    report = harness.format_markdown_report(mock_results)
+    assert "# Synthetic Legal Memory Benchmark Report" in report
+    assert "Pre-Registered Go/No-Go Recommendation" in report
+    assert "NO-GO" in report
+
+
+@pytest.mark.benchmark
+@pytest.mark.slow
 def test_full_benchmark_smoke(dataset: BenchmarkDataset, token_encoder: DeterministicTokenEncoder) -> None:
     """Smoke test running full benchmark over 2 seeds and verifying result dictionary."""
     harness = EvaluationHarness(dataset, token_encoder)

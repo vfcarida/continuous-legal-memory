@@ -5,6 +5,8 @@ This module defines immutable value objects and dataclasses representing legal m
 semantic knowledge graph nodes, multi-tier memory structures, and prediction outputs.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -116,6 +118,7 @@ class GraphNode:
         valid_from: Temporal start timestamp.
         valid_to: Temporal invalidation/expiry timestamp.
         decay_factor: Decay-driven activation weight (1.0 = active, 0.0 = completely decayed).
+        tenant_id: Tenant namespace identifier enforcing multi-tenant isolation.
     """
 
     node_id: str
@@ -126,6 +129,7 @@ class GraphNode:
     valid_from: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     valid_to: datetime | None = None
     decay_factor: float = 1.0
+    tenant_id: str = "default"
 
 
 @dataclass
@@ -138,12 +142,15 @@ class GraphEdge:
         target_id: Destination node ID.
         relation_type: Relationship type (SUPERSEDES, CONTRADICTS, DEPENDS_ON, etc.).
         weight: Strength or precedence coefficient of the relationship edge.
+        tenant_id: Tenant namespace identifier enforcing multi-tenant isolation.
     """
 
     source_id: str
     target_id: str
     relation_type: RelationType
     weight: float = 1.0
+    tenant_id: str = "default"
+
 
 
 @dataclass

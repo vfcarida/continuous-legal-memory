@@ -7,6 +7,8 @@ allows downstream legal agent orchestrators to execute target resilience strateg
 forgetting policies, context compaction, or fallback routing) rather than catching generic errors.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 

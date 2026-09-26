@@ -5,6 +5,9 @@ Serves as the central entry point for the Multi-Tier Continuous Legal Memory eng
 Working Memory, Episodic Ledger, Semantic Knowledge Graph, and neural continuum adaptation networks.
 """
 
+from __future__ import annotations
+
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +31,7 @@ from continuous_legal_memory.domain.interfaces import (
 )
 from continuous_legal_memory.domain.models import (
     EntityType,
+    GraphNode,
     MemoryRecord,
     MemoryTier,
     PredictionResult,
@@ -61,6 +65,7 @@ class LegalMemoryOrchestrator:
         enable_telemetry: bool = False,
         attestor: KeyedHashAttestationModule | None = None,
         enable_attestation: bool = False,
+        engine_mode: str = "structured",
     ) -> None:
         """
         Initialize the LegalMemoryOrchestrator.
@@ -79,6 +84,8 @@ class LegalMemoryOrchestrator:
             enable_telemetry: If True and telemetry is None, instantiates a default TelemetryLogger.
             attestor: Optional KeyedHashAttestationModule for cryptographic state attestation.
             enable_attestation: If True and attestor is None, instantiates a default KeyedHashAttestationModule.
+            engine_mode: Core memory engine strategy ('structured' [default production engine]
+                         or 'hybrid' [experimental dual-timescale neural adaptation head]).
         """
         self.seed = seed
         if self.seed is not None:
@@ -98,11 +105,16 @@ class LegalMemoryOrchestrator:
             self.encoder = HuggingFaceEncoderAdapter()
 
         self.value_dim = value_dim
+        self.engine_mode = engine_mode.lower()
+        if self.engine_mode not in ("structured", "hybrid"):
+            raise ValueError(f"Unknown engine_mode '{engine_mode}'. Supported modes: 'structured', 'hybrid'.")
+
         self.hope_module = HopeModule(
             embed_dim=self.encoder.embedding_dim,
             value_dim=value_dim,
             temperature=temperature,
             retriever=retriever,
+            engine_mode=self.engine_mode,
         )
 
         # Multi-Tier Cognitive Memory System
@@ -125,6 +137,8 @@ class LegalMemoryOrchestrator:
             self.attestor = KeyedHashAttestationModule()
         else:
             self.attestor = None
+
+        self._current_tenant_id: str | None = None
 
     def update_memory(
         self,
@@ -203,9 +217,11 @@ class LegalMemoryOrchestrator:
         auth_rank = metadata.get("authority_rank", authority_rank) if metadata else authority_rank
         juris = metadata.get("jurisdiction", jurisdiction) if metadata else jurisdiction
         is_personal = metadata.get("personal_data", personal_data) if metadata else personal_data
+        default_tenant = getattr(self, "_current_tenant_id", None) or "default"
+        explicit_tenant = tenant_id if tenant_id != "default" else default_tenant
         tenant = (
-            metadata.get("tenant_id", metadata.get("tenant", tenant_id))
-            if metadata else tenant_id
+            metadata.get("tenant_id", metadata.get("tenant", explicit_tenant))
+            if metadata else explicit_tenant
         )
 
         try:
@@ -217,12 +233,14 @@ class LegalMemoryOrchestrator:
 
         val_tensor = torch.tensor([action_vector], dtype=torch.float32)
 
-        # 1. Adapt neural associative continuum memory (skip parametric adaptation if personal data)
+        # 1. Adapt neural associative continuum memory
+        # In structured mode (default) or for personal data, bypass online gradient backprop on fast_net
+        skip_param = is_personal or (self.engine_mode == "structured")
         self.hope_module.memory.add_memory(
             key_embed,
             val_tensor,
             rule_text,
-            skip_parametric=is_personal,
+            skip_parametric=skip_param,
             authority_rank=auth_rank,
         )
 
@@ -261,6 +279,7 @@ class LegalMemoryOrchestrator:
             key_vector=key_embed,
             value_vector=val_tensor,
             metadata=metadata,
+            tenant_id=tenant,
         )
 
         # 4. Ingest into Semantic Knowledge Graph
@@ -286,6 +305,7 @@ class LegalMemoryOrchestrator:
             embedding=key_embed,
             valid_from=valid_from,
             valid_to=valid_to,
+            tenant_id=tenant,
         )
 
         if metadata and "relations" in metadata:
@@ -296,7 +316,7 @@ class LegalMemoryOrchestrator:
                     rel_type = RelationType(rel_type)
                 weight = rel.get("weight", 1.0)
                 if target and target in self.semantic_graph.nodes:
-                    self.semantic_graph.add_edge(node_id, target, rel_type, weight)
+                    self.semantic_graph.add_edge(node_id, target, rel_type, weight, tenant_id=tenant)
 
         return rec
 
@@ -321,16 +341,17 @@ class LegalMemoryOrchestrator:
             InvalidMemoryVectorError: If query text is empty.
             EncoderInferenceError: If query embedding generation fails.
         """
+        eff_tenant = tenant_id if tenant_id is not None else getattr(self, "_current_tenant_id", None)
         if self.telemetry is not None:
             result, _ = self.telemetry.trace_operation(
                 "predict",
                 self._execute_predict,
                 query_text,
                 at_time,
-                tenant_id,
+                eff_tenant,
             )
         else:
-            result = self._execute_predict(query_text, at_time, tenant_id)
+            result = self._execute_predict(query_text, at_time, eff_tenant)
 
         if self.attestor is not None:
             token = self.attestor.sign_attestation(result, retrieved_text=result.most_relevant_rule)
@@ -449,15 +470,16 @@ class LegalMemoryOrchestrator:
             self.episodic_memory.record_tombstone(record_id)
 
         # 2. Clear from Working Memory
-        self.working_memory.remove_by_text(deleted_rec.text)
+        self.working_memory.remove_by_text(deleted_rec.text, tenant_id=deleted_rec.tenant_id)
 
         # 3. Clear from Semantic Knowledge Graph
         matching_nodes = [
             nid for nid, node in self.semantic_graph.nodes.items()
-            if nid == record_id or node.description == deleted_rec.text
+            if (nid == record_id or node.description == deleted_rec.text)
+            and getattr(node, "tenant_id", "default") == deleted_rec.tenant_id
         ]
         for nid in matching_nodes:
-            self.semantic_graph.remove_node(nid)
+            self.semantic_graph.remove_node(nid, tenant_id=deleted_rec.tenant_id)
 
         # 4. Clear from Retrieval Buffers
         buf_idx = None
@@ -496,4 +518,44 @@ class LegalMemoryOrchestrator:
         """Restore complete multi-tier state and model weights from a SQLite database."""
         store = SqliteMemoryStore(db_path)
         store.load_into_orchestrator(self)
+
+    def get_working_memory_context(
+        self,
+        at_time: datetime | None = None,
+        tenant_id: str | None = None,
+    ) -> list[MemoryRecord]:
+        """
+        Retrieve active working memory records, optionally filtered by tenant.
+
+        Args:
+            at_time: Datetime timestamp to evaluate validity.
+            tenant_id: Optional tenant identifier to enforce multi-tenant isolation.
+        """
+        return self.working_memory.get_active_context(at_time=at_time, tenant_id=tenant_id)
+
+    def get_semantic_graph_nodes(self, tenant_id: str | None = None) -> list[GraphNode]:
+        """
+        Retrieve semantic knowledge graph nodes, optionally filtered by tenant.
+
+        Args:
+            tenant_id: Optional tenant identifier.
+        """
+        return self.semantic_graph.get_nodes(tenant_id=tenant_id)
+
+    @contextmanager
+    def tenant(self, tenant_id: str):
+        """
+        Context manager scoping orchestrator actions to a specific tenant.
+
+        Usage:
+            with orchestrator.tenant("client_alpha"):
+                res = orchestrator.predict("Query text")
+        """
+        prev_tenant = getattr(self, "_current_tenant_id", None)
+        self._current_tenant_id = tenant_id
+        try:
+            yield tenant_id
+        finally:
+            self._current_tenant_id = prev_tenant
+
 

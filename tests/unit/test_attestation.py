@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from continuous_legal_memory.domain.models import PredictionResult
 from continuous_legal_memory.security.attestation import (
+    AsymmetricAttestationModule,
     CryptographicAttestationModule,
     KeyedHashAttestationModule,
     canonicalize_payload,
@@ -127,3 +128,109 @@ def test_backward_compatibility_aliases() -> None:
 
     # Verify works via legacy class name
     assert module.verify_attestation(token, pred) is True
+
+
+def test_asymmetric_ed25519_keypair_generation_and_signing() -> None:
+    """Verify Ed25519 keypair generation, token signing, and public-key-only verification."""
+    priv_hex, pub_hex = AsymmetricAttestationModule.generate_keypair()
+    assert len(priv_hex) == 64  # 32 bytes hex
+    assert len(pub_hex) == 64  # 32 bytes hex
+
+    signer = AsymmetricAttestationModule(private_key=priv_hex, key_id="court-audit-key")
+    pred = _make_prediction(query="GDPR erasure request", vector=[1.0, 0.0])
+
+    token = signer.sign_attestation(pred)
+    assert token.algorithm == "Ed25519"
+    assert token.public_key == pub_hex
+    assert len(token.integrity_tag) == 128  # 64 bytes hex
+
+    # Verification using the signer instance
+    assert signer.verify_attestation(token, pred) is True
+
+
+def test_asymmetric_ed25519_verification_only_client() -> None:
+    """
+    Verify that an auditor or regulator can verify attestation tokens using ONLY
+    the public key, with zero knowledge of the private signing key.
+    """
+    priv_hex, pub_hex = AsymmetricAttestationModule.generate_keypair()
+    signer = AsymmetricAttestationModule(private_key=priv_hex)
+    pred = _make_prediction()
+    token = signer.sign_attestation(pred)
+
+    # Auditor only possesses public key
+    auditor = AsymmetricAttestationModule(public_key=pub_hex)
+    assert auditor._private_key is None
+
+    # Signing must fail for verification-only auditor
+    import pytest
+    with pytest.raises(PermissionError, match="verification-only mode"):
+        auditor.sign_attestation(pred)
+
+    # But verification must succeed
+    assert auditor.verify_attestation(token, pred) is True
+
+    # Tampered prediction vector fails
+    tampered_pred = _make_prediction(vector=[0.0, 1.0])
+    assert auditor.verify_attestation(token, tampered_pred) is False
+
+
+def test_asymmetric_ed25519_tamper_detection() -> None:
+    """Verify that tampering with query, retrieved snippet, or signature invalidates token."""
+    priv_hex, pub_hex = AsymmetricAttestationModule.generate_keypair()
+    signer = AsymmetricAttestationModule(private_key=priv_hex)
+    pred = _make_prediction(query="Original Legal Query", rule="Article 5 Directive")
+
+    token = signer.sign_attestation(pred, retrieved_text="Article 5 Directive")
+    assert signer.verify_attestation(token, pred, retrieved_text="Article 5 Directive") is True
+
+    # Tampered query
+    tampered_q = _make_prediction(query="Altered Legal Query", rule="Article 5 Directive")
+    assert signer.verify_attestation(token, tampered_q, retrieved_text="Article 5 Directive") is False
+
+    # Tampered snippet
+    assert signer.verify_attestation(token, pred, retrieved_text="Article 9 Contradiction") is False
+
+    # Corrupted signature byte
+    corrupted_tag = "00" + token.integrity_tag[2:]
+    token.integrity_tag = corrupted_tag
+    assert signer.verify_attestation(token, pred, retrieved_text="Article 5 Directive") is False
+
+
+def test_asymmetric_ed25519_wrong_public_key_rejection() -> None:
+    """Verify that verification fails when checked against an unrelated public key."""
+    priv_hex_a, _ = AsymmetricAttestationModule.generate_keypair()
+    _, pub_hex_b = AsymmetricAttestationModule.generate_keypair()
+
+    signer = AsymmetricAttestationModule(private_key=priv_hex_a)
+    pred = _make_prediction()
+    token = signer.sign_attestation(pred)
+
+    auditor_wrong = AsymmetricAttestationModule(public_key=pub_hex_b)
+    assert auditor_wrong.verify_attestation(token, pred) is False
+
+
+def test_asymmetric_ed25519_env_var_configuration(monkeypatch) -> None:
+    """Verify that CLM_ATTESTATION_PRIVATE_KEY environment variable is automatically loaded."""
+    priv_hex, pub_hex = AsymmetricAttestationModule.generate_keypair()
+    monkeypatch.setenv("CLM_ATTESTATION_PRIVATE_KEY", priv_hex)
+
+    module = AsymmetricAttestationModule()
+    assert module.is_ephemeral is False
+    assert module.public_key_hex == pub_hex
+
+    pred = _make_prediction()
+    token = module.sign_attestation(pred)
+    assert module.verify_attestation(token, pred) is True
+
+
+def test_keyed_hash_module_can_verify_ed25519_token() -> None:
+    """Verify cross-module interoperability: KeyedHash module verifies Ed25519 token via public key."""
+    priv_hex, _ = AsymmetricAttestationModule.generate_keypair()
+    signer = AsymmetricAttestationModule(private_key=priv_hex)
+    pred = _make_prediction()
+    token = signer.sign_attestation(pred)
+
+    symmetric_module = KeyedHashAttestationModule(secret_key="some-hmac-secret")
+    assert symmetric_module.verify_attestation(token, pred) is True
+

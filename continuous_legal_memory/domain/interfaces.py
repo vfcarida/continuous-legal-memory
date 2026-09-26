@@ -6,6 +6,8 @@ and neural associative memory operations from external infrastructure dependenci
 local Ollama edge runtimes, vector database providers, or local storage layers.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 
 import torch

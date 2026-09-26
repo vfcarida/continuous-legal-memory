@@ -36,6 +36,7 @@ class HopeModule(nn.Module):
         temperature: float = 0.05,
         hidden_dim: int = 64,
         retriever: BaseRetrieverPort | None = None,
+        engine_mode: str = "structured",
     ) -> None:
         """
         Initialize the HopeModule.
@@ -45,13 +46,28 @@ class HopeModule(nn.Module):
             value_dim: Action decision vector output dimension.
             temperature: Softmax scaling temperature for attention sharpness.
             hidden_dim: Hidden dimension for internal memory MLPs.
-            retriever: Optional BaseRetrieverPort instance. Defaults to DefaultAttentionRetriever.
+            retriever: Optional BaseRetrieverPort instance. Defaults to TemporalStructuredRetriever
+                       when engine_mode='structured', or DefaultAttentionRetriever when 'hybrid'.
+            engine_mode: Execution mode ('structured' [default] or 'hybrid').
         """
         super().__init__()
         self.memory = ContinuousMemory(embed_dim, value_dim, hidden_dim)
         self.temperature = temperature
-        self.retriever: BaseRetrieverPort = retriever or DefaultAttentionRetriever()
+        self.engine_mode = engine_mode.lower()
+
+        if retriever is not None:
+            self.retriever: BaseRetrieverPort = retriever
+        elif self.engine_mode == "structured":
+            from continuous_legal_memory.retrieval.temporal_structured import (
+                TemporalStructuredRetriever,
+            )
+
+            self.retriever = TemporalStructuredRetriever(temperature=temperature)
+        else:
+            self.retriever = DefaultAttentionRetriever()
+
         self.last_snippets: list[str] | None = None
+
 
     def forward(
         self,
@@ -131,17 +147,18 @@ class HopeModule(nn.Module):
             ranks = [getattr(r, "authority_rank", 1) for r in records]
             has_authority_hierarchy = max(ranks) > min(ranks)
 
-        if has_authority_hierarchy:
-            # Statutory authority governance: superior authority candidate governs decision
+        if self.engine_mode == "structured" or has_authority_hierarchy:
+            # Deterministic statutory authority governance: structured precedence governs decision
             retrieved_values = v_retrieved
+            gate_ratio = 0.0
         else:
             # Final non-linear synthesis of direct episodic retrieval and active neural memory prediction
             retrieved_values = 0.4 * v_retrieved + 0.6 * v_net
-
-        gate_ratio = gate.squeeze().item() if gate.numel() == 1 else gate.mean().item()
+            gate_ratio = gate.squeeze().item() if gate.numel() == 1 else gate.mean().item()
 
         if return_snippets:
             return retrieved_values, attention_weights, gate_ratio, snippets
 
         return retrieved_values, attention_weights, gate_ratio
+
 
