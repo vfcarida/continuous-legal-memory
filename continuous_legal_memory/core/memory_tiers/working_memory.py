@@ -51,6 +51,7 @@ class WorkingMemory:
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
         jurisdiction: str | None = None,
+        record_id: str | None = None,
     ) -> MemoryRecord:
         """
         Add a new short-term interaction record to Working Memory.
@@ -66,6 +67,7 @@ class WorkingMemory:
             valid_from: Optional datetime marking the start of temporal validity.
             valid_to: Optional datetime marking expiration.
             jurisdiction: Optional jurisdictional scope identifier.
+            record_id: Optional unique string record identifier.
 
         Returns:
             The created `MemoryRecord`.
@@ -92,6 +94,7 @@ class WorkingMemory:
         juris = metadata.get("jurisdiction", jurisdiction) if metadata else jurisdiction
 
         record = MemoryRecord(
+            record_id=record_id,
             text=text,
             key_vector=key_vector,
             value_vector=value_vector,

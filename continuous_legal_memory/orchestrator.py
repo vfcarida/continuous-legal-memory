@@ -7,6 +7,7 @@ Working Memory, Episodic Ledger, Semantic Knowledge Graph, and neural continuum 
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -148,7 +149,7 @@ class LegalMemoryOrchestrator:
     def update_memory(
         self,
         rule_text: str,
-        action_vector: list[float],
+        action_vector: list[float] | None = None,
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
         metadata: dict | None = None,
@@ -162,7 +163,7 @@ class LegalMemoryOrchestrator:
 
         Args:
             rule_text: Human-readable text string of the legal rule or statute.
-            action_vector: Target decision outputs list.
+            action_vector: Optional target decision outputs list (defaults to zero vector).
             valid_from: Start timestamp of legal validity.
             valid_to: Expiry or temporal invalidation timestamp.
             metadata: Custom audit metadata dictionary.
@@ -178,12 +179,13 @@ class LegalMemoryOrchestrator:
             InvalidMemoryVectorError: If input parameters violate dimension or text bounds.
             EncoderInferenceError: If key embedding generation fails.
         """
+        effective_action = [0.0] * self.value_dim if action_vector is None else action_vector
         if self.telemetry is not None:
             res, _ = self.telemetry.trace_operation(
                 "update_memory",
                 self._execute_update_memory,
                 rule_text,
-                action_vector,
+                effective_action,
                 valid_from,
                 valid_to,
                 metadata,
@@ -194,14 +196,14 @@ class LegalMemoryOrchestrator:
             )
             return cast(MemoryRecord, res)
         return self._execute_update_memory(
-            rule_text, action_vector, valid_from, valid_to, metadata,
+            rule_text, effective_action, valid_from, valid_to, metadata,
             authority_rank, jurisdiction, personal_data, tenant_id
         )
 
     def _execute_update_memory(
         self,
         rule_text: str,
-        action_vector: list[float],
+        action_vector: list[float] | None = None,
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
         metadata: dict | None = None,
@@ -212,6 +214,9 @@ class LegalMemoryOrchestrator:
     ) -> MemoryRecord:
         if not isinstance(rule_text, str) or len(rule_text.strip()) == 0:
             raise InvalidMemoryVectorError("Rule text must be a non-empty string.")
+
+        if action_vector is None:
+            action_vector = [0.0] * self.value_dim
 
         if not isinstance(action_vector, list) or len(action_vector) != self.value_dim:
             raise InvalidMemoryVectorError(
@@ -290,6 +295,7 @@ class LegalMemoryOrchestrator:
                 valid_from=valid_from,
                 valid_to=valid_to,
                 jurisdiction=juris,
+                record_id=rec.record_id,
             )
 
             # 4. Ingest into Semantic Knowledge Graph
@@ -441,7 +447,12 @@ class LegalMemoryOrchestrator:
 
         return result
 
-    def delete_rule(self, record_id: str, tenant_id: str | None = None) -> dict[str, Any]:
+    def delete_rule(
+        self,
+        record_id: str | None = None,
+        tenant_id: str | None = None,
+        rule_id: str | None = None,
+    ) -> dict[str, Any]:
         """
         Execute Right-to-Erasure (GDPR Art. 17 / CLM-R7) across all memory tiers.
 
@@ -457,6 +468,7 @@ class LegalMemoryOrchestrator:
         Args:
             record_id: Identifier of the rule/record to permanently erase.
             tenant_id: Optional tenant identifier to enforce authorization.
+            rule_id: Optional alias for record_id.
 
         Returns:
             Audit record dictionary confirming multi-tier erasure metrics.
@@ -464,18 +476,22 @@ class LegalMemoryOrchestrator:
         Raises:
             KeyError: If record_id is not found in the episodic ledger or tenant mismatch.
         """
+        target_id = record_id or rule_id
+        if not target_id:
+            raise KeyError("A non-empty record_id or rule_id must be provided for erasure.")
+
         with self._lock:
             deleted_rec = None
             for rec in self.episodic_memory.get_records():
-                if rec.record_id == record_id:
+                if rec.record_id == target_id:
                     deleted_rec = rec
                     break
 
             if deleted_rec is None:
-                raise KeyError(f"Rule with ID '{record_id}' not found in episodic ledger.")
+                raise KeyError(f"Rule with ID '{target_id}' not found in episodic ledger.")
 
             if tenant_id is not None and deleted_rec.tenant_id != tenant_id:
-                raise KeyError(f"Rule with ID '{record_id}' does not belong to tenant '{tenant_id}'.")
+                raise KeyError(f"Rule with ID '{target_id}' does not belong to tenant '{tenant_id}'.")
 
             # 1. Delete from Episodic Memory (records tombstone in hash chain)
             if hasattr(self.episodic_memory, "delete_record"):
@@ -551,6 +567,8 @@ class LegalMemoryOrchestrator:
         """
         return self.working_memory.get_active_context(at_time=at_time, tenant_id=tenant_id)
 
+    get_active_context = get_working_memory_context
+
     def get_semantic_graph_nodes(self, tenant_id: str | None = None) -> list[GraphNode]:
         """
         Retrieve semantic knowledge graph nodes, optionally filtered by tenant.
@@ -612,5 +630,118 @@ class LegalMemoryOrchestrator:
             if len(results) >= max_results:
                 break
         return results
+
+    # Intuitive method alias
+    ingest_rule = update_memory
+
+    async def async_update_memory(
+        self,
+        rule_text: str,
+        action_vector: list[float] | None = None,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
+        metadata: dict | None = None,
+        authority_rank: int = 1,
+        jurisdiction: str | None = None,
+        personal_data: bool = False,
+        tenant_id: str = "default",
+        **kwargs: Any,
+    ) -> MemoryRecord:
+        """
+        Asynchronously update cognitive memory without blocking the active asyncio event loop.
+        """
+        if "is_personal_data" in kwargs:
+            personal_data = bool(kwargs["is_personal_data"])
+        return await asyncio.to_thread(
+            self.update_memory,
+            rule_text=rule_text,
+            action_vector=action_vector,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            metadata=metadata,
+            authority_rank=authority_rank,
+            jurisdiction=jurisdiction,
+            personal_data=personal_data,
+            tenant_id=tenant_id,
+        )
+
+    async def async_ingest_rule(
+        self,
+        rule_text: str,
+        action_vector: list[float] | None = None,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
+        metadata: dict | None = None,
+        authority_rank: int = 1,
+        jurisdiction: str | None = None,
+        personal_data: bool = False,
+        tenant_id: str = "default",
+        **kwargs: Any,
+    ) -> MemoryRecord:
+        """Alias for async_update_memory."""
+        return await self.async_update_memory(
+            rule_text=rule_text,
+            action_vector=action_vector,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            metadata=metadata,
+            authority_rank=authority_rank,
+            jurisdiction=jurisdiction,
+            personal_data=personal_data,
+            tenant_id=tenant_id,
+            **kwargs,
+        )
+
+    async def async_predict(
+        self,
+        query_text: str,
+        at_time: datetime | None = None,
+        tenant_id: str | None = None,
+    ) -> PredictionResult:
+        """
+        Asynchronously predict decision vectors without blocking the active asyncio event loop.
+        """
+        return await asyncio.to_thread(
+            self.predict,
+            query_text=query_text,
+            at_time=at_time,
+            tenant_id=tenant_id,
+        )
+
+    async def async_delete_rule(
+        self,
+        record_id: str | None = None,
+        tenant_id: str | None = None,
+        rule_id: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Asynchronously erase a rule across all memory tiers without blocking the active asyncio event loop.
+        """
+        target_id = record_id or rule_id
+        return await asyncio.to_thread(
+            self.delete_rule,
+            record_id=target_id,
+            tenant_id=tenant_id,
+        )
+
+    async def async_associate_statutes(
+        self,
+        seed_nodes: list[str] | dict[str, float],
+        damping: float = 0.85,
+        max_results: int = 10,
+        tenant_id: str | None = None,
+        at_time: datetime | None = None,
+    ) -> list[tuple[GraphNode, float]]:
+        """
+        Asynchronously execute HippoRAG Personalized PageRank over the legal graph.
+        """
+        return await asyncio.to_thread(
+            self.associate_statutes,
+            seed_nodes=seed_nodes,
+            damping=damping,
+            max_results=max_results,
+            tenant_id=tenant_id,
+            at_time=at_time,
+        )
 
 

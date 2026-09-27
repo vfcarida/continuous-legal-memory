@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Asynchronous Orchestrator API (Concurrency & Agentic Workflows)**:
+  - Added non-blocking asynchronous coroutine methods to `LegalMemoryOrchestrator`: `async_ingest_rule`, `async_update_memory`, `async_predict`, `async_delete_rule`, and `async_associate_statutes`.
+  - Added unit test suite in `tests/unit/test_async_orchestrator.py` verifying high-throughput concurrent legal audits via `asyncio.gather` and multi-tier erasure.
+  - Added comprehensive async workflows documentation guide in `docs/guides/async-workflows.md`.
+- **Database Concurrency & ACID Hardening (Storage)**:
+  - Configured `SqliteMemoryStore` connection pragmas with Write-Ahead Logging (`PRAGMA journal_mode = WAL`), extended busy timeout (`PRAGMA busy_timeout = 10000`), and `PRAGMA synchronous = NORMAL` for seamless multi-threaded read/write concurrency.
+  - Added `record_id` indexing and preservation in `WorkingMemory`.
+- **Production Example Suite (`examples/`)**:
+  - Added `examples/quickstart_demo.py`: End-to-end statute ingestion, *lex superior* precedence resolution, and HippoRAG Personalized PageRank graph diffusion.
+  - Added `examples/multi_tenant_compliance_demo.py`: Tenant isolation, zero cross-tenant leakage, Ed25519 cryptographic attestation, and GDPR Art. 17 erasure.
+  - Added `examples/async_agent_demo.py`: High-throughput concurrent legal compliance auditing using `asyncio.gather`.
+  - Added `examples/framework_integrations_demo.py`: Complete integrations with LangChain (`ContinuousLegalMemoryLangChain`), LlamaIndex (`ContinuousLegalMemoryLlamaRetriever`), and Letta (`ContinuousLegalMemoryBlock`).
+  - Added automated test suite in `tests/unit/test_examples.py` executing all modern examples end-to-end, bringing total passing unit tests to **108 passed**.
 - **REST API Microservice Server (Phase 3 / Deployment)**:
   - Added lightweight, multi-threaded JSON REST API server (`continuous_legal_memory/server.py`) using standard library `ThreadingHTTPServer` with zero runtime external web dependencies.
   - Implemented endpoints: `GET /health`, `GET /metrics`, `POST /v1/rules`, `POST /v1/predict`, `DELETE /v1/rules/{id}`, `GET /v1/context`, `GET /v1/graph`, `POST /v1/associate`, `POST /v1/attestation/verify`, `POST /v1/persist`, and `POST /v1/restore`.

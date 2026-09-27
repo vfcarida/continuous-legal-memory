@@ -61,6 +61,7 @@ nav:
       - Letta (MemGPT) Memory: guides/letta-integration.md
       - HippoRAG Graph Diffusion: guides/hipporag-pagerank.md
       - Multi-Tenancy & Partitioning: guides/multi-tenancy.md
+      - Async Agent Workflows: guides/async-workflows.md
   - Deployment & Operations:
       - REST API & Docker: deployment/docker-and-api.md
   - API Reference:
