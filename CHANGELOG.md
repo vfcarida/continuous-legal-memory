@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added unit test suite in `tests/unit/test_telemetry.py`.
 - **Offline Mock Encoder**:
   - Added `SemanticMockEncoder` in `continuous_legal_memory/adapters/mock_encoder.py` for deterministic, zero-network associative testing and CLI evaluation.
+- **Daemon Availability Caching & Test Suite Acceleration**:
+  - Added daemon reachability state tracking and optimized loopback connection timeouts in `OllamaGemmaAdapter`, eliminating repeated connection blocking on offline systems.
+  - Refactored `test_reachability_and_subsystems.py`, `test_phase3_retrieval_and_mlops.py`, and `test_temporal_and_determinism.py` to use `SemanticMockEncoder`, accelerating unit test suite execution from 154s to **18.42s (8.4x speedup)**.
+- **CI/CD & Packaging Verification**:
+  - Added automated Mypy static type checking and `twine` wheel distribution verification to `.github/workflows/ci.yml`.
+  - Migrated `pyproject.toml` license configuration to standard SPDX expression (`license = "MIT"`), eliminating setuptools deprecation warnings during packaging.
 - **Deployment & CLI Documentation**:
   - Added `docs/deployment/docker-and-api.md` and `docs/reference/cli.md` and integrated them into `mkdocs.yml`.
 - **LegalBench-RAG Evaluation Benchmark Suite (ECO-03 / Phase 3)**:

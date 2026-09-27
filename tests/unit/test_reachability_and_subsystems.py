@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import pytest
 import torch
 
-from continuous_legal_memory.adapters.ollama import OllamaGemmaAdapter
+from continuous_legal_memory.adapters.mock_encoder import SemanticMockEncoder
 from continuous_legal_memory.core.memory_tiers.episodic_memory import EpisodicMemory
 from continuous_legal_memory.core.memory_tiers.semantic_memory import SemanticKnowledgeGraph
 from continuous_legal_memory.domain.exceptions import MemoryContradictionError
@@ -39,11 +39,7 @@ from continuous_legal_memory.telemetry.observability import TelemetryLogger
 
 @pytest.fixture
 def offline_encoder() -> BaseEncoderPort:
-    return OllamaGemmaAdapter(
-        embedding_dim=64,
-        strict_privacy_mode=True,
-        allow_pseudo_embeddings=True,
-    )
+    return SemanticMockEncoder(embedding_dim=64)
 
 
 def test_retriever_port_hierarchy() -> None:

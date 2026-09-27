@@ -4,17 +4,13 @@ Unit tests for Temporal Validity Enforcement at inference and Seeded Determinism
 
 from datetime import datetime, timezone
 
-from continuous_legal_memory.adapters.ollama import OllamaGemmaAdapter
+from continuous_legal_memory.adapters.mock_encoder import SemanticMockEncoder
 from continuous_legal_memory.orchestrator import LegalMemoryOrchestrator
 
 
 def _create_offline_orchestrator(seed: int | None = None) -> LegalMemoryOrchestrator:
-    """Helper creating an offline-safe orchestrator using the pseudo-embedding adapter."""
-    encoder = OllamaGemmaAdapter(
-        embedding_dim=64,
-        strict_privacy_mode=True,
-        allow_pseudo_embeddings=True,
-    )
+    """Helper creating an offline-safe orchestrator using the SemanticMockEncoder."""
+    encoder = SemanticMockEncoder(embedding_dim=64, seed=seed or 42)
     return LegalMemoryOrchestrator(encoder=encoder, value_dim=2, seed=seed)
 
 

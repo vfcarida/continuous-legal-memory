@@ -4,7 +4,7 @@ Unit tests for Phase 3 Precision Retrieval, Cryptographic Attestation, Agentic E
 
 import torch
 
-from continuous_legal_memory.adapters.ollama import OllamaGemmaAdapter
+from continuous_legal_memory.adapters.mock_encoder import SemanticMockEncoder
 from continuous_legal_memory.domain.models import MemoryRecord, PredictionResult
 from continuous_legal_memory.evaluation.agentic_eval import AgenticLegalEvaluator
 from continuous_legal_memory.retrieval.hybrid_retriever import BM25Okapi, HybridLegalRetriever
@@ -27,7 +27,7 @@ def test_bm25_okapi_scoring() -> None:
 
 def test_hybrid_legal_retriever() -> None:
     """Verify hybrid retrieval with BM25, dense vector similarities, and character snippet extraction."""
-    encoder = OllamaGemmaAdapter(embedding_dim=128, strict_privacy_mode=True, allow_pseudo_embeddings=True)
+    encoder = SemanticMockEncoder(embedding_dim=128)
     retriever = HybridLegalRetriever(encoder=encoder)
 
     text_1 = "Article 1: All personal data must be erased upon customer request within 15 business days."

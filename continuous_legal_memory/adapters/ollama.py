@@ -57,6 +57,7 @@ class OllamaGemmaAdapter(BaseEncoderPort):
         self._embedding_dim = embedding_dim
         self.strict_privacy_mode = strict_privacy_mode
         self.allow_pseudo_embeddings = allow_pseudo_embeddings
+        self._daemon_available: bool | None = None
 
         if self.strict_privacy_mode and not self._is_local_endpoint(self.host_url):
             raise EncoderInferenceError(
@@ -105,13 +106,17 @@ class OllamaGemmaAdapter(BaseEncoderPort):
             method="POST",
         )
 
+        if self._daemon_available is False and self.allow_pseudo_embeddings:
+            return self._generate_fallback_vector(text)
+
         try:
-            with urllib.request.urlopen(req, timeout=5) as response:
+            with urllib.request.urlopen(req, timeout=1) as response:
                 if response.status == 200:
                     data = json.loads(response.read().decode("utf-8"))
                     embedding = data.get("embedding")
                     if isinstance(embedding, list) and len(embedding) > 0:
                         self._embedding_dim = len(embedding)
+                        self._daemon_available = True
                         return embedding
                 if not self.allow_pseudo_embeddings:
                     raise EncoderInferenceError(
@@ -126,6 +131,7 @@ class OllamaGemmaAdapter(BaseEncoderPort):
                     f"Ollama daemon at '{self.host_url}' is unreachable or failed: {e}",
                     payload={"host_url": self.host_url, "model": self.model_name},
                 ) from e
+            self._daemon_available = False
             logger.warning(
                 "Ollama daemon unreachable at '%s'. Fallback pseudo-embedding used because allow_pseudo_embeddings=True.",
                 self.host_url,

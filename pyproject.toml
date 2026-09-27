@@ -10,7 +10,7 @@ readme = "README.md"
 authors = [
     { name = "Vinicius Caridá", email = "vfcarida@gmail.com" }
 ]
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
