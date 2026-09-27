@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -155,7 +155,7 @@ class BoundedHistoryBaseline:
         sims = torch.matmul(F.normalize(q_emb, p=2, dim=-1), F.normalize(self.keys, p=2, dim=-1).T)
         weights = F.softmax(sims / 0.05, dim=-1)
         action = torch.matmul(weights, self.values).squeeze(0)
-        return action.tolist()
+        return cast(list[float], action.tolist())
 
 
 class PlainRAGBaseline:
@@ -185,7 +185,7 @@ class PlainRAGBaseline:
         sims = torch.matmul(F.normalize(q_emb, p=2, dim=-1), F.normalize(self.keys, p=2, dim=-1).T)
         weights = F.softmax(sims / self.temperature, dim=-1)
         action = torch.matmul(weights, self.values).squeeze(0)
-        return action.tolist()
+        return cast(list[float], action.tolist())
 
 
 class TemporalStructuredBaseline:
@@ -256,7 +256,7 @@ class TemporalStructuredBaseline:
 
         weights = F.softmax(adjusted_scores / self.temperature, dim=-1)
         action = torch.matmul(weights, values).squeeze(0)
-        return action.tolist()
+        return cast(list[float], action.tolist())
 
 
 class HybridMemoryBaseline:
