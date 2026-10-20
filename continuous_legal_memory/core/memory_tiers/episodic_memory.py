@@ -100,13 +100,15 @@ class EpisodicMemory(BaseMemoryStorePort):
         self,
         at_time: datetime | None = None,
         tenant_id: str | None = None,
+        as_of_transaction_time: datetime | None = None,
     ) -> list[MemoryRecord]:
         """
-        Retrieve all temporally valid episodic records at the specified timestamp.
+        Retrieve all temporally valid episodic records at the specified valid-time and transaction-time.
 
         Args:
-            at_time: Datetime timestamp to evaluate validity against.
+            at_time: Datetime timestamp to evaluate valid-time against.
             tenant_id: Optional tenant identifier to enforce multi-tenant isolation.
+            as_of_transaction_time: Optional transaction-time cutoff for point-in-time auditing.
 
         Returns:
             List of valid `MemoryRecord` instances.
@@ -114,20 +116,23 @@ class EpisodicMemory(BaseMemoryStorePort):
         eval_time = at_time or datetime.now(timezone.utc)
         return [
             rec for rec in self._ledger
-            if rec.is_temporally_valid(eval_time) and (tenant_id is None or rec.tenant_id == tenant_id)
+            if rec.is_temporally_valid(eval_time, as_of_transaction_time=as_of_transaction_time)
+            and (tenant_id is None or rec.tenant_id == tenant_id)
         ]
 
     def get_valid_indices(
         self,
         at_time: datetime | None = None,
         tenant_id: str | None = None,
+        as_of_transaction_time: datetime | None = None,
     ) -> list[int]:
         """
-        Retrieve ledger indices of all temporally valid episodic records at the specified timestamp.
+        Retrieve ledger indices of all temporally valid episodic records at the specified timestamps.
 
         Args:
-            at_time: Datetime timestamp to evaluate validity against.
+            at_time: Datetime timestamp to evaluate valid-time against.
             tenant_id: Optional tenant identifier to enforce multi-tenant isolation.
+            as_of_transaction_time: Optional transaction-time cutoff for point-in-time auditing.
 
         Returns:
             List of integer indices corresponding to valid records in the ledger.
@@ -135,7 +140,8 @@ class EpisodicMemory(BaseMemoryStorePort):
         eval_time = at_time or datetime.now(timezone.utc)
         return [
             i for i, rec in enumerate(self._ledger)
-            if rec.is_temporally_valid(eval_time) and (tenant_id is None or rec.tenant_id == tenant_id)
+            if rec.is_temporally_valid(eval_time, as_of_transaction_time=as_of_transaction_time)
+            and (tenant_id is None or rec.tenant_id == tenant_id)
         ]
 
     def compute_temporal_decay(self, record: MemoryRecord, at_time: datetime | None = None) -> float:

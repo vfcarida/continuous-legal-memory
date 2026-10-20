@@ -18,6 +18,7 @@ from typing import Any
 
 from continuous_legal_memory.adapters.mock_encoder import SemanticMockEncoder
 from continuous_legal_memory.domain.models import PredictionResult
+from continuous_legal_memory.mcp import MCPServer
 from continuous_legal_memory.orchestrator import LegalMemoryOrchestrator
 from continuous_legal_memory.security.attestation import (
     AsymmetricAttestationModule,
@@ -64,7 +65,9 @@ def _build_parser() -> argparse.ArgumentParser:
     query_parser.add_argument("query_text", type=str, help="Inquiry or legal scenario text to query.")
     query_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
     query_parser.add_argument("--tenant", default="default", help="Tenant scope.")
-    query_parser.add_argument("--at-time", type=str, default=None, help="ISO 8601 timestamp for temporal evaluation.")
+    query_parser.add_argument("--at-time", type=str, default=None, help="ISO 8601 timestamp for valid-time evaluation.")
+    query_parser.add_argument("--as-of-tx", type=str, default=None, help="ISO 8601 transaction-time cutoff for bi-temporal 'as-of' replay.")
+    query_parser.add_argument("--jurisdiction", type=str, default=None, help="Optional jurisdiction filter.")
     query_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder for fast testing.")
 
     # 4. clm erase
@@ -96,6 +99,143 @@ def _build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--benchmark", type=str, default="tests/fixtures/synthetic_legal_benchmark.jsonl", help="Benchmark JSONL dataset.")
     eval_parser.add_argument("--engine-mode", choices=["structured", "hybrid"], default="structured", help="Retrieval engine mode.")
     eval_parser.add_argument("--output", type=str, default=None, help="Optional JSON output filepath for benchmark metrics.")
+
+    # 8. clm mcp
+    mcp_parser = subparsers.add_parser("mcp", help="Launch the Model Context Protocol (MCP) JSON-RPC 2.0 server over stdio.")
+    mcp_parser.add_argument("--db-path", type=str, default=None, help="Optional path to persistent SQLite database.")
+    mcp_parser.add_argument("--engine-mode", choices=["structured", "hybrid"], default="structured", help="Core retrieval engine mode.")
+    mcp_parser.add_argument("--enable-attestation", action="store_true", help="Enable cryptographic attestation tokens.")
+    mcp_parser.add_argument("--mock-encoder", action="store_true", help="Use lightweight SemanticMockEncoder for offline execution.")
+
+    # 9. clm audit
+    audit_parser = subparsers.add_parser("audit", help="Audit active norms and semantic graph for deontic cycles and antinomies.")
+    audit_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    audit_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    audit_parser.add_argument("--at-time", type=str, default=None, help="Optional ISO 8601 timestamp.")
+    audit_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 10. clm merkle-proof
+    merkle_parser = subparsers.add_parser("merkle-proof", help="Generate and verify a 256-bit Sparse Merkle Tree inclusion or erasure proof.")
+    merkle_parser.add_argument("record_id", type=str, help="Rule or record ID to prove.")
+    merkle_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    merkle_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 11. clm compliance-proof
+    zk_parser = subparsers.add_parser("compliance-proof", help="Generate a Selective-Disclosure / Zero-Knowledge Normative Compliance Proof.")
+    zk_parser.add_argument("record_id", type=str, help="Rule or record ID to prove.")
+    zk_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    zk_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    zk_parser.add_argument("--min-authority-rank", type=int, default=1, help="Minimum required authority rank.")
+    zk_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 12. clm export-bundle
+    export_parser = subparsers.add_parser("export-bundle", help="Export a cryptographically signed portable compliance bundle (.clm.bundle.json).")
+    export_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    export_parser.add_argument("--output", type=str, required=True, help="Output file path for .clm.bundle.json.")
+    export_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    export_parser.add_argument("--redact-personal-data", action="store_true", help="Redact personal data plaintext in bundle.")
+    export_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 13. clm restore-bundle
+    restore_parser = subparsers.add_parser("restore-bundle", help="Verify and restore a signed portable compliance bundle into SQLite storage.")
+    restore_parser.add_argument("--bundle-file", type=str, required=True, help="Input path to .clm.bundle.json file.")
+    restore_parser.add_argument("--db-path", type=str, required=True, help="Target path to SQLite memory database.")
+    restore_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 14. clm simulate-rule
+    sim_parser = subparsers.add_parser("simulate-rule", help="Run a non-mutating Pre-Flight Standard Deontic Logic (KD) simulation.")
+    sim_parser.add_argument("--text", type=str, required=True, help="Candidate legal rule text.")
+    sim_parser.add_argument("--action", type=float, nargs="+", required=True, help="Candidate target decision vector.")
+    sim_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    sim_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    sim_parser.add_argument("--authority-rank", type=int, default=1, help="Candidate authority rank.")
+    sim_parser.add_argument("--jurisdiction", type=str, default=None, help="Candidate jurisdiction.")
+    sim_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 15. clm key-list
+    klist_parser = subparsers.add_parser("key-list", help="List all cryptographic signing keys and lifecycle statuses in CryptographicKeyRing.")
+    klist_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    klist_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 16. clm key-rotate
+    krot_parser = subparsers.add_parser("key-rotate", help="Atomically rotate the active signing key in CryptographicKeyRing.")
+    krot_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    krot_parser.add_argument("--key-id", type=str, default=None, help="Optional new key identifier.")
+    krot_parser.add_argument("--algorithm", choices=["Ed25519", "HMAC-SHA256", "PQ-Hybrid-Ed25519-SHA256"], default=None, help="Signing algorithm.")
+    krot_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 17. clm key-revoke
+    krev_parser = subparsers.add_parser("key-revoke", help="Permanently revoke a compromised signing key ID in CryptographicKeyRing.")
+    krev_parser.add_argument("key_id", type=str, help="Key ID to revoke.")
+    krev_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    krev_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 18. clm repair-rule
+    rep_parser = subparsers.add_parser("repair-rule", help="Synthesize and verify legislative/contractual drafting repair proposals for a candidate rule.")
+    rep_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    rep_parser.add_argument("--text", type=str, required=True, help="Candidate legal rule text.")
+    rep_parser.add_argument("--action", type=float, nargs="+", default=None, help="Candidate target action vector.")
+    rep_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    rep_parser.add_argument("--authority-rank", type=int, default=1, help="Candidate authority rank.")
+    rep_parser.add_argument("--jurisdiction", type=str, default=None, help="Candidate jurisdiction.")
+    rep_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 19. clm tee-quote
+    tee_parser = subparsers.add_parser("tee-quote", help="Generate a hardware-anchored TEE Remote Attestation Quote (AWS_NITRO or INTEL_TDX).")
+    tee_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    tee_parser.add_argument("--platform", choices=["AWS_NITRO", "INTEL_TDX"], default="AWS_NITRO", help="TEE hardware platform.")
+    tee_parser.add_argument("--nonce", type=str, default=None, help="Optional anti-replay challenge nonce.")
+    tee_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    tee_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 20. clm export-smtlib
+    smt_parser = subparsers.add_parser("export-smtlib", help="Export active tenant norms as a formal SMT-LIB 2.6 specification for Z3 / cvc5.")
+    smt_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    smt_parser.add_argument("--query", type=str, default=None, help="Optional query to bind DefeasibleProofTrace into SMT-LIB.")
+    smt_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    smt_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 21. clm simulate-timeline
+    tl_parser = subparsers.add_parser("simulate-timeline", help="Simulate bi-temporal regulatory horizon transitions across time.")
+    tl_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    tl_parser.add_argument("--query", type=str, default=None, help="Optional query to evaluate at each epoch.")
+    tl_parser.add_argument("--start-time", type=str, default=None, help="ISO-8601 start timestamp.")
+    tl_parser.add_argument("--end-time", type=str, default=None, help="ISO-8601 end timestamp.")
+    tl_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    tl_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 22. clm export-verifier
+    ver_parser = subparsers.add_parser("export-verifier", help="Export a self-contained HTML5 + WebCrypto standalone audit verifier.")
+    ver_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    ver_parser.add_argument("--output", type=str, default=None, help="Optional path to write standalone HTML file.")
+    ver_parser.add_argument("--query", type=str, default=None, help="Optional query for embedded SMT-LIB specification.")
+    ver_parser.add_argument("--redact-personal-data", action="store_true", help="Redact personal data in embedded bundle.")
+    ver_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    ver_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 23. clm timestamp-root
+    tst_parser = subparsers.add_parser("timestamp-root", help="Issue an RFC 3161 cryptographic TimestampToken over the tenant Merkle root.")
+    tst_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    tst_parser.add_argument("--nonce", type=str, default=None, help="Optional anti-replay nonce.")
+    tst_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    tst_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 24. clm gossip-audit
+    gos_parser = subparsers.add_parser("gossip-audit", help="Audit transparency log witness checkpoints for split-view equivocation.")
+    gos_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    gos_parser.add_argument("--checkpoints-file", type=str, required=True, help="Path to JSON file containing a list of GossipCheckpoint dicts.")
+    gos_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    gos_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
+
+    # 25. clm amendment-impact
+    amd_parser = subparsers.add_parser("amendment-impact", help="Analyze clause-level statutory amendment diffs and downstream obligation impacts.")
+    amd_parser.add_argument("rule_id", type=str, help="Target rule ID being amended.")
+    amd_parser.add_argument("--db-path", type=str, required=True, help="Path to SQLite memory database.")
+    amd_parser.add_argument("--text", type=str, required=True, help="Proposed or enacted amended statutory text.")
+    amd_parser.add_argument("--action", type=float, nargs="+", default=None, help="Optional amended action vector.")
+    amd_parser.add_argument("--authority-rank", type=int, default=None, help="Optional amended authority rank.")
+    amd_parser.add_argument("--tenant", default="default", help="Tenant scope.")
+    amd_parser.add_argument("--mock-encoder", action="store_true", help="Use mock encoder.")
 
     return parser
 
@@ -196,7 +336,15 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 def _cmd_query(args: argparse.Namespace) -> int:
     orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
     at_time = datetime.fromisoformat(args.at_time) if args.at_time else None
-    result = orch.predict(query_text=args.query_text, at_time=at_time, tenant_id=args.tenant)
+    as_of_tx = datetime.fromisoformat(args.as_of_tx) if getattr(args, "as_of_tx", None) else None
+    jurisdiction = getattr(args, "jurisdiction", None)
+    result = orch.predict(
+        query_text=args.query_text,
+        at_time=at_time,
+        tenant_id=args.tenant,
+        jurisdiction=jurisdiction,
+        as_of_transaction_time=as_of_tx,
+    )
 
     output: dict[str, Any] = {
         "query": result.query,
@@ -205,6 +353,8 @@ def _cmd_query(args: argparse.Namespace) -> int:
         "most_relevant_rule": result.most_relevant_rule,
         "confidence": result.confidence,
         "tenant_id": result.tenant_id,
+        "merkle_root": result.merkle_root,
+        "proof_trace": result.proof_trace,
     }
     if result.attestation_token:
         output["attestation_token"] = {
@@ -326,6 +476,223 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(
+        db_path=args.db_path,
+        engine_mode=args.engine_mode,
+        enable_attestation=args.enable_attestation,
+        mock_encoder=args.mock_encoder,
+    )
+    server = MCPServer(orch)
+    server.serve_stdio()
+    if args.db_path:
+        orch.save_to_disk(args.db_path)
+    return 0
+
+
+def _cmd_audit(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    at_time = datetime.fromisoformat(args.at_time) if args.at_time else None
+    report = orch.audit_deontic_consistency(tenant_id=args.tenant, at_time=at_time)
+    print(json.dumps(report.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_merkle_proof(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    proof = orch.merkle_tree.generate_proof(args.record_id, attestor=orch.attestor)
+    verified = orch.verify_merkle_proof(proof, expected_root_hash=orch.merkle_tree.root_hex)
+    out = proof.to_dict()
+    out["verified"] = verified
+    print(json.dumps(out, indent=2))
+    return 0 if verified else 1
+
+
+def _cmd_compliance_proof(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    bundle = orch.generate_compliance_proof(
+        record_id=args.record_id,
+        min_required_authority_rank=args.min_authority_rank,
+        tenant_id=args.tenant,
+    )
+    verified = orch.verify_compliance_proof(bundle.proof)
+    out = bundle.proof.to_dict()
+    out["verified"] = verified
+    print(json.dumps(out, indent=2))
+    return 0 if verified else 1
+
+
+def _cmd_export_bundle(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    bundle = orch.export_compliance_bundle(
+        tenant_id=args.tenant,
+        redact_personal_data=args.redact_personal_data,
+    )
+    out_path = Path(args.output)
+    out_path.write_text(bundle.to_json(), encoding="utf-8")
+    print(json.dumps({
+        "status": "EXPORTED",
+        "output": str(out_path),
+        "tenant_id": bundle.tenant_id,
+        "merkle_root": bundle.merkle_root,
+        "records_count": len(bundle.records),
+    }, indent=2))
+    return 0
+
+
+def _cmd_restore_bundle(args: argparse.Namespace) -> int:
+    bundle_path = Path(args.bundle_file)
+    if not bundle_path.exists():
+        print(f"Error: Bundle file not found at {args.bundle_file}", file=sys.stderr)
+        return 1
+    bundle_data = json.loads(bundle_path.read_text(encoding="utf-8"))
+    orch = _init_orchestrator(db_path=None, mock_encoder=args.mock_encoder)
+    parsed = orch.restore_compliance_bundle(bundle_data)
+    orch.save_to_disk(args.db_path)
+    print(json.dumps({
+        "status": "RESTORED",
+        "db_path": args.db_path,
+        "tenant_id": parsed.tenant_id,
+        "merkle_root": parsed.merkle_root,
+        "records_restored": len(parsed.records),
+    }, indent=2))
+    return 0
+
+
+def _cmd_simulate_rule(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    report = orch.simulate_rule_ingestion(
+        rule_text=args.text,
+        action_vector=args.action,
+        authority_rank=args.authority_rank,
+        jurisdiction=args.jurisdiction,
+        tenant_id=args.tenant,
+    )
+    print(json.dumps(report.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_key_list(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    print(json.dumps({
+        "active_key_id": orch.keyring.active_key_id,
+        "keys": orch.list_signing_keys(),
+    }, indent=2))
+    return 0
+
+
+def _cmd_key_rotate(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    meta = orch.rotate_signing_key(new_key_id=args.key_id, algorithm=args.algorithm)
+    orch.save_to_disk(args.db_path)
+    print(json.dumps(meta.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_key_revoke(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    meta = orch.revoke_signing_key(args.key_id)
+    orch.save_to_disk(args.db_path)
+    print(json.dumps(meta.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_repair_rule(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    report = orch.propose_norm_repairs(
+        rule_text=args.text,
+        action_vector=args.action,
+        authority_rank=args.authority_rank,
+        jurisdiction=args.jurisdiction,
+        tenant_id=args.tenant,
+    )
+    print(json.dumps(report.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_tee_quote(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    quote = orch.generate_tee_quote(
+        nonce=args.nonce,
+        platform=args.platform,
+        tenant_id=args.tenant,
+    )
+    print(json.dumps(quote.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_export_smtlib(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    bundle = orch.export_smtlib(
+        query_text=args.query,
+        tenant_id=args.tenant,
+    )
+    print(json.dumps(bundle.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_simulate_timeline(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    st_dt = datetime.fromisoformat(args.start_time) if args.start_time else None
+    et_dt = datetime.fromisoformat(args.end_time) if args.end_time else None
+    report = orch.simulate_temporal_horizon(
+        query_text=args.query,
+        start_time=st_dt,
+        end_time=et_dt,
+        tenant_id=args.tenant,
+    )
+    print(json.dumps(report.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_export_verifier(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    artifact = orch.export_standalone_verifier(
+        tenant_id=args.tenant,
+        redact_personal_data=args.redact_personal_data,
+        query_text=args.query,
+    )
+    if args.output:
+        Path(args.output).write_text(artifact.html_content, encoding="utf-8")
+    print(json.dumps(artifact.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_timestamp_root(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    tst = orch.issue_timestamp_token(
+        tenant_id=args.tenant,
+        nonce=args.nonce,
+    )
+    print(json.dumps(tst.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_gossip_audit(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    raw = json.loads(Path(args.checkpoints_file).read_text(encoding="utf-8"))
+    checkpoints = raw if isinstance(raw, list) else raw.get("checkpoints", [])
+    report = orch.audit_transparency_gossip(
+        checkpoints=checkpoints,
+        tenant_id=args.tenant,
+    )
+    print(json.dumps(report.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_amendment_impact(args: argparse.Namespace) -> int:
+    orch = _init_orchestrator(db_path=args.db_path, mock_encoder=args.mock_encoder)
+    report = orch.analyze_statutory_amendment(
+        target_rule_id=args.rule_id,
+        amended_text=args.text,
+        amended_action_vector=args.action,
+        amended_authority_rank=args.authority_rank,
+        tenant_id=args.tenant,
+    )
+    print(json.dumps(report.to_dict(), indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -343,6 +710,24 @@ def main(argv: list[str] | None = None) -> int:
         "associate": _cmd_associate,
         "verify": _cmd_verify,
         "evaluate": _cmd_evaluate,
+        "mcp": _cmd_mcp,
+        "audit": _cmd_audit,
+        "merkle-proof": _cmd_merkle_proof,
+        "compliance-proof": _cmd_compliance_proof,
+        "export-bundle": _cmd_export_bundle,
+        "restore-bundle": _cmd_restore_bundle,
+        "simulate-rule": _cmd_simulate_rule,
+        "key-list": _cmd_key_list,
+        "key-rotate": _cmd_key_rotate,
+        "key-revoke": _cmd_key_revoke,
+        "repair-rule": _cmd_repair_rule,
+        "tee-quote": _cmd_tee_quote,
+        "export-smtlib": _cmd_export_smtlib,
+        "simulate-timeline": _cmd_simulate_timeline,
+        "export-verifier": _cmd_export_verifier,
+        "timestamp-root": _cmd_timestamp_root,
+        "gossip-audit": _cmd_gossip_audit,
+        "amendment-impact": _cmd_amendment_impact,
     }
 
     handler = handlers.get(args.command)

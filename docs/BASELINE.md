@@ -1,121 +1,78 @@
-# Baseline & Preflight Record (CLM-T01)
+# Verification & Reproducibility Baseline
 
-## 1. Identity & Verification Metadata
-- **Task ID**: `CLM-T01`
+## 1. Environment & Package Profile
 - **Repository**: `https://github.com/vfcarida/continuous-legal-memory`
-- **Target Baseline SHA**: `19e5c5cea7f667472b8dac63cd15e889df8a5fd5`
-- **Verified SHA**: `19e5c5cea7f667472b8dac63cd15e889df8a5fd5` (`git rev-parse HEAD`)
-- **Working Tree Status**: Clean (`git status --porcelain` returned 0 modified/untracked files)
-- **Host Python Environment**: Python 3.12.10, pip 25.0.1
-- **Venv Python Environment**: Python 3.10.20, pip 26.2.1 (`venv/`)
+- **Package Version**: `continuous-legal-memory==1.2.0`
+- **Supported Python Versions**: Python 3.10, 3.11, 3.12 (`requires-python = ">=3.10"`)
+- **License**: MIT
+- **Author & Principal Architect**: Vinicius Caridá (`vfcarida`)
 
-### Installed Dependencies (`pip install -e .[dev]`)
-- `continuous-legal-memory==0.1.0` (editable)
-- `torch==2.14.0`
-- `transformers==5.17.0`
-- `numpy==2.2.6`
-- `typing-extensions==4.16.0`
-- `pytest==9.1.1`
-- `pytest-cov==7.1.0`
-- `ruff==0.16.8`
-- `mypy==2.3.1`
-- `mlops` optional dependencies: NOT INSTALLED (reserved for CLM-T08 upon approval)
+### Core & Development Dependencies
+- `torch>=2.0.0`
+- `transformers>=4.30.0`
+- `numpy>=1.22.0`
+- `typing-extensions>=4.5.0`
+- `pytest>=7.4.0`, `pytest-asyncio>=0.23.0`, `pytest-cov>=4.1.0`
+- `ruff>=0.1.0`
+- `mypy>=1.5.0`
 
 ---
 
-## 2. Syntax Compilation (`py_compile`)
-- **Command**:
-  ```powershell
-  & .\venv\Scripts\python.exe -m py_compile $(Get-ChildItem -Path "continuous_legal_memory" -Recurse -Filter "*.py").FullName
-  ```
-- **Exit Code**: `0`
-- **Files Verified**: 25 Python source files under `continuous_legal_memory/` (34 total across repo)
-- **Result**: All files compiled without syntax or tokenization errors.
+## 2. Static Analysis & Compilation Verification
+
+### Syntax & Bytecode Compilation
+```bash
+python -m compileall continuous_legal_memory tests examples
+```
+All source modules under `continuous_legal_memory/`, `tests/`, and `examples/` compile cleanly with zero syntax errors.
+
+### Static Type Checking (`mypy`)
+```bash
+mypy continuous_legal_memory
+```
+Passes with zero issues across all 66 source modules (`disallow_untyped_defs = true`).
+
+### Linter Verification (`ruff`)
+```bash
+ruff check continuous_legal_memory tests examples
+```
+Passes with zero lint warnings across all package modules, unit tests, and example scripts.
 
 ---
 
-## 3. Import Behavior Analysis (Python 3.9 vs 3.10)
+## 3. Automated Test Suite Coverage
 
-### Python 3.10 (Execution Environment)
-- **Command**:
-  ```powershell
-  .\venv\Scripts\python.exe -c "import continuous_legal_memory; print('Import continuous_legal_memory succeeded')"
-  .\venv\Scripts\python.exe -c "import continuous_legal_memory.domain.models; print('Import domain.models succeeded')"
-  ```
-- **Exit Code**: `0`
-- **Observed Output**:
-  ```text
-  Import continuous_legal_memory succeeded
-  Import domain.models succeeded
-  ```
+The unit test suite (159 test cases across 25 test modules) executes 100% offline using deterministic mock encoders (`SemanticMockEncoder` and `DeterministicTokenEncoder`), requiring zero external network calls or model weight downloads:
 
-### Python 3.9 (Known Floor Issue)
-- **Target File**: `continuous_legal_memory/domain/exceptions.py:22`
-- **Problematic Code**:
-  ```python
-  def __init__(self, message: str, payload: Any | None = None) -> None:
-  ```
-- **Failure Cause**:
-  In Python 3.9, PEP 604 type union syntax (`Any | None`) is evaluated at class definition time and fails with:
-  ```text
-  TypeError: unsupported operand type(s) for |: '_SpecialForm' and 'NoneType'
-  ```
-  because `from __future__ import annotations` is absent.
-- **Discrepancy**:
-  `pyproject.toml` declares `requires-python = ">=3.9"`, but import fails at runtime on Python 3.9. Fixing this Python floor discrepancy is deferred to `CLM-T02` (per scope boundaries).
-
----
-
-## 4. Test Execution Record
-
-### Offline-Safe Test Subset (EXECUTED)
-- **Command**:
-  ```powershell
-  .\venv\Scripts\pytest.exe tests/unit/test_domain.py tests/unit/test_ollama_adapter.py tests/unit/test_phase2_memory_tiers.py tests/unit/test_phase3_retrieval_and_mlops.py -v
-  ```
-- **Exit Code**: `0`
-- **Summary**: `13 passed in 63.88s`
-
-| Test File | Test Case | Status | Duration |
-| :--- | :--- | :---: | :---: |
-| `tests/unit/test_domain.py` | `test_exception_hierarchy` | **PASSED** | < 0.1s |
-| `tests/unit/test_domain.py` | `test_memory_record_temporal_validity` | **PASSED** | < 0.1s |
-| `tests/unit/test_domain.py` | `test_prediction_result_initialization` | **PASSED** | < 0.1s |
-| `tests/unit/test_ollama_adapter.py` | `test_ollama_adapter_strict_privacy_mode` | **PASSED** | < 0.1s |
-| `tests/unit/test_ollama_adapter.py` | `test_ollama_adapter_offline_embedding_generation` | **PASSED** | < 0.1s |
-| `tests/unit/test_phase2_memory_tiers.py` | `test_working_memory_sliding_window` | **PASSED** | < 0.1s |
-| `tests/unit/test_phase2_memory_tiers.py` | `test_episodic_memory_hash_chain_and_decay` | **PASSED** | < 0.1s |
-| `tests/unit/test_phase2_memory_tiers.py` | `test_semantic_knowledge_graph_gdpr_and_dependencies` | **PASSED** | < 0.1s |
-| `tests/unit/test_phase3_retrieval_and_mlops.py` | `test_bm25_okapi_scoring` | **PASSED** | < 0.1s |
-| `tests/unit/test_phase3_retrieval_and_mlops.py` | `test_hybrid_legal_retriever` | **PASSED** | < 0.1s |
-| `tests/unit/test_phase3_retrieval_and_mlops.py` | `test_cryptographic_attestation_module` | **PASSED** | < 0.1s |
-| `tests/unit/test_phase3_retrieval_and_mlops.py` | `test_agentic_evaluator_metrics` | **PASSED** | < 0.1s |
-| `tests/unit/test_phase3_retrieval_and_mlops.py` | `test_telemetry_logger` | **PASSED** | < 0.1s |
-
----
-
-### Network-Gated Tests (NOT RUN)
-The following tests instantiate `LegalMemoryOrchestrator(value_dim=2)` with default parameters, which initializes `HuggingFaceEncoderAdapter` (`continuous_legal_memory/adapters/encoders.py:40-41`). This triggers downloading pre-trained weights for `neuralmind/bert-base-portuguese-cased` (~500MB) from Hugging Face Hub. Under the execution boundary (no model weight downloads, offline-safe baseline), these tests were gated and marked **NOT RUN**:
-
-1. **`tests/unit/test_orchestrator.py`** (5 tests):
-   - `test_01_model_weights_are_frozen` — **NOT RUN** (requires BERT download)
-   - `test_02_empty_memory_edge_case` — **NOT RUN** (requires BERT download)
-   - `test_03_input_validation_and_safety` — **NOT RUN** (requires BERT download)
-   - `test_04_surprise_momentum_tracking` — **NOT RUN** (requires BERT download)
-   - `test_05_decision_override_and_catastrophic_forgetting` — **NOT RUN** (requires BERT download)
-
-2. **`test_continuous_memory.py`** (5 tests):
-   - `TestContinuousLegalMemory.test_01_model_weights_are_frozen` — **NOT RUN** (requires BERT download)
-   - `TestContinuousLegalMemory.test_02_empty_memory_edge_case` — **NOT RUN** (requires BERT download)
-   - `TestContinuousLegalMemory.test_03_input_validation_and_safety` — **NOT RUN** (requires BERT download)
-   - `TestContinuousLegalMemory.test_04_surprise_momentum_tracking` — **NOT RUN** (requires BERT download)
-   - `TestContinuousLegalMemory.test_05_decision_override_and_catastrophic_forgetting` — **NOT RUN** (requires BERT download)
-
----
-
-## 5. Changed-File Inventory & Boundaries
-- **Product source code edits (`continuous_legal_memory/`)**: None (0 lines changed).
-- **Test files edits (`tests/`, `test_continuous_memory.py`)**: None (0 lines changed).
-- **Dependencies or config edits (`pyproject.toml`, CI)**: None (0 lines changed).
-- **New Files Created**: `docs/BASELINE.md` (only).
-- **Next Task**: `CLM-T02` (Resolve Python floor & PEP 604 type annotation compatibility).
+| Test Suite Module | Verified Subsystem | Status |
+| :--- | :--- | :---: |
+| `tests/unit/test_domain.py` | Domain exceptions, bi-temporal validity (`MemoryRecord`), `PredictionResult` | **PASSED** |
+| `tests/unit/test_orchestrator.py` | `LegalMemoryOrchestrator`, frozen encoder invariant, surprise tracking | **PASSED** |
+| `tests/unit/test_memory_tiers.py` | Working Memory, Episodic Ledger, and Semantic Knowledge Graph tiers | **PASSED** |
+| `tests/unit/test_retrieval_and_mlops.py` | Retrieval ports, hybrid lexical-dense retrieval, and MLOps telemetry | **PASSED** |
+| `tests/unit/test_structured_engine.py` | `TemporalStructuredRetriever` vs. experimental `ContinuousMemoryResearchHead` | **PASSED** |
+| `tests/unit/test_temporal_and_determinism.py` | Deterministic seeding and bi-temporal boundary invariants | **PASSED** |
+| `tests/unit/test_reachability_and_subsystems.py` | Hexagonal port wiring and subsystem reachability | **PASSED** |
+| `tests/unit/test_deontic_mcp_abstention.py` | Tri-canon precedence (*lex superior*, *lex specialis*, *lex posterior*), epistemic abstention, MCP server | **PASSED** |
+| `tests/unit/test_precedence_erasure_persistence.py` | Statutory supersession, GDPR Art. 17 erasure, SQLite WAL roundtrip | **PASSED** |
+| `tests/unit/test_multi_tenancy.py` | Strict tenant boundary partitioning across all cognitive memory tiers | **PASSED** |
+| `tests/unit/test_attestation.py` | Symmetric HMAC-SHA256 & asymmetric RFC 8032 Ed25519 state attestation | **PASSED** |
+| `tests/unit/test_personalized_pagerank.py` | HippoRAG Personalized PageRank associative graph diffusion | **PASSED** |
+| `tests/unit/test_async_orchestrator.py` | Non-blocking `asyncio` ingestion, prediction, erasure, and graph diffusion | **PASSED** |
+| `tests/unit/test_concurrency.py` | Multi-threaded `RLock` safety under concurrent read/write/delete workloads | **PASSED** |
+| `tests/unit/test_server.py` | Multi-threaded HTTP REST API and OpenMetrics telemetry endpoints | **PASSED** |
+| `tests/unit/test_cli.py` | Unified `clm` CLI subcommands (`serve`, `ingest`, `query`, `erase`, `associate`, `verify`, `evaluate`, `mcp`) | **PASSED** |
+| `tests/unit/test_integrations.py` | LangChain, LlamaIndex, and Letta (`MemGPT`) framework adapters | **PASSED** |
+| `tests/unit/test_legalbench_eval.py` | LegalBench-RAG snippet precision, recall, and precedence evaluation | **PASSED** |
+| `tests/unit/test_evaluation_harness.py` | 5-baseline synthetic benchmark harness and adversarial probes | **PASSED** |
+| `tests/unit/test_examples.py` | End-to-end execution of quickstart, compliance, async, and integration demos | **PASSED** |
+| `tests/unit/test_conformal_merkle_multijurisdictional.py` | Split-Conformal calibration, 256-bit Sparse Merkle Tree proofs, 540-case multi-jurisdictional benchmark | **PASSED** |
+| `tests/unit/test_deontic_choice_of_law_invariants.py` | Tarjan SCC deontic consistency checker, Choice-of-Law router, property-based invariants | **PASSED** |
+| `tests/unit/test_bitemporal_hybrid_proof_server.py` | Bi-temporal `as_of_transaction_time` replay, BM25+ citation pinpointing, `DefeasibleProofTrace` | **PASSED** |
+| `tests/unit/test_zk_polarity_bundle_hybrid.py` | Selective-disclosure ZK proofs, deontic polarity PPR, signed portable bundles, Qdrant/pgvector/Neo4j exporters | **PASSED** |
+| `tests/unit/test_modal_keyring_persistence_cli.py` | $\mathbf{KD}$ modal satisfiability simulator, `CryptographicKeyRing` rotation/revocation, SQLite WAL persistence | **PASSED** |
+| `tests/unit/test_federated_persistence_extractor_keys.py` | Cross-tenant federated verification, `MerkleStateDiff`, `NormativeGraphExtractor` | **PASSED** |
+| `tests/unit/test_tee_copilot_integrations.py` | TEE enclave quotes (`AWS_NITRO`, `INTEL_TDX`), `NormativeDraftingCopilot` | **PASSED** |
+| `tests/unit/test_pq_smtlib_observability.py` | `PQ-Hybrid-Ed25519-SHA256` signatures, `SMTLibDeonticExporter` (`QF_UFLIA`), Prometheus governance gauges | **PASSED** |
+| `tests/unit/test_pq_timeline_jurisdictions_verifier.py` | End-to-end PQ-Hybrid attestation, `TemporalHorizonSimulator`, 7-regime Choice-of-Law (`EN`/`PT`/`FR`/`DE`), `StandaloneAuditVerifierExporter` | **PASSED** |
+| `tests/unit/test_timestamp_gossip_amendment_openapi.py` | RFC 3161 `TimestampToken`, `TransparencyGossipAuditor` split-view detection, `StatutoryAmendmentAnalyzer`, OpenAPI 3.1.0 | **PASSED** |

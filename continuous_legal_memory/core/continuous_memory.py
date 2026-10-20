@@ -117,7 +117,7 @@ class ContinuousMemory(nn.Module):
         self.slow_net.eval()
 
         surprise = 0.0
-        if self.keys.size(0) > 0:
+        if not skip_parametric and self.keys.size(0) > 0:
             with torch.no_grad():
                 pred_slow = self.slow_net(key_vector)
                 surprise = F.mse_loss(pred_slow, value_vector).item()

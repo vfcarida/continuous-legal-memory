@@ -1,5 +1,5 @@
 """
-Unit tests for Temporal Validity Enforcement at inference and Seeded Determinism (CLM-T04).
+Unit tests for Temporal Validity Enforcement at inference and Seeded Determinism.
 """
 
 from datetime import datetime, timezone

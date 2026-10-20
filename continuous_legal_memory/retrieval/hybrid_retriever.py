@@ -12,6 +12,10 @@ import torch
 
 from continuous_legal_memory.domain.interfaces import BaseEncoderPort, BaseRetrieverPort
 from continuous_legal_memory.domain.models import MemoryRecord
+from continuous_legal_memory.retrieval.hybrid_lexical import (
+    compute_lexical_citation_scores,
+    extract_legal_citations,
+)
 from continuous_legal_memory.retrieval.precedence import apply_legal_precedence
 
 
@@ -70,10 +74,15 @@ class HybridLegalRetriever(BaseRetrieverPort):
     Rationale:
         Legal text analysis requires both exact keyword precision (e.g. specific article numbers or latin phrases)
         and deep semantic vector retrieval. This engine:
-        1. BM25 + Dense Hybrid Scoring: Combines keyword BM25 scores and vector cosine similarity.
+        1. BM25 + Statutory Citation Pinpointing + Dense Hybrid Scoring: Combines keyword BM25 scores,
+           canonical statutory citation matching, and vector cosine similarity.
         2. Exact Character Snippet Extraction: Extracts exact start and end character indices (`start_char`, `end_char`)
-           to eliminate context bloat and hallucination risks, fulfilling LegalBench-RAG requirements.
+           centered on the highest-density statutory citation or multi-keyword span (LegalBench-RAG standard).
     """
+
+    _STOPWORDS = frozenset(
+        {"a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on", "or", "that", "the", "to", "was", "with"}
+    )
 
     def __init__(
         self,
@@ -86,7 +95,7 @@ class HybridLegalRetriever(BaseRetrieverPort):
 
         Args:
             encoder: BaseEncoderPort instance.
-            bm25_weight: Weight assigned to BM25 keyword score.
+            bm25_weight: Weight assigned to BM25 + citation lexical score.
             dense_weight: Weight assigned to dense vector cosine similarity score.
         """
         self.encoder = encoder
@@ -105,7 +114,8 @@ class HybridLegalRetriever(BaseRetrieverPort):
         """
         Compute hybrid retrieval scores, attention weights, and optional snippets (BaseRetrieverPort).
 
-        Combines BM25 keyword matching (if records and query_text are provided) with dense vector cosine similarity.
+        Combines BM25 keyword matching and statutory citation pinpointing (if records and query_text
+        are provided) with dense vector cosine similarity, then applies hierarchical legal precedence.
         """
         query_norm = torch.nn.functional.normalize(query_embed, p=2, dim=-1)
         keys_norm = torch.nn.functional.normalize(keys, p=2, dim=-1)
@@ -113,12 +123,8 @@ class HybridLegalRetriever(BaseRetrieverPort):
 
         snippets: list[str] | None = None
         if records and query_text:
-            corpus = [r.text for r in records]
-            bm25 = BM25Okapi(corpus)
-            raw_bm25 = bm25.get_scores(query_text)
-            max_bm25 = max(raw_bm25) if raw_bm25 and max(raw_bm25) > 0 else 1.0
-            norm_bm25 = [s / max_bm25 for s in raw_bm25]
-            bm25_tensor = torch.tensor([norm_bm25], dtype=query_embed.dtype, device=query_embed.device)
+            lex_scores = compute_lexical_citation_scores(query_text, records)
+            bm25_tensor = torch.tensor([lex_scores], dtype=query_embed.dtype, device=query_embed.device)
             scores = self.bm25_weight * bm25_tensor + self.dense_weight * dense_scores
             snippets = [self.extract_character_snippet(r.text, query_text)[2] for r in records]
         else:
@@ -127,7 +133,7 @@ class HybridLegalRetriever(BaseRetrieverPort):
         scaled_scores = apply_legal_precedence(scores, rule_importance, records)
         attention_weights = torch.nn.functional.softmax(scaled_scores / temperature, dim=-1)
 
-        return scores, attention_weights, snippets
+        return scaled_scores, attention_weights, snippets
 
     def retrieve_with_snippets(
         self,
@@ -151,13 +157,7 @@ class HybridLegalRetriever(BaseRetrieverPort):
         if not records:
             return []
 
-        corpus = [r.text for r in records]
-        bm25 = BM25Okapi(corpus)
-        raw_bm25_scores = bm25.get_scores(query)
-
-        # Normalize BM25 scores
-        max_bm25 = max(raw_bm25_scores) if raw_bm25_scores and max(raw_bm25_scores) > 0 else 1.0
-        norm_bm25 = [s / max_bm25 for s in raw_bm25_scores]
+        norm_bm25 = compute_lexical_citation_scores(query, records)
 
         # Compute Dense Cosine Similarities
         query_vec = self.encoder.get_embedding([query])
@@ -183,7 +183,8 @@ class HybridLegalRetriever(BaseRetrieverPort):
 
     def extract_character_snippet(self, text: str, query: str, max_chars: int = 200) -> tuple[int, int, str]:
         """
-        Extract exact character start/end bounds surrounding the query match.
+        Extract exact character start/end bounds surrounding the highest-density statutory citation
+        or multi-keyword match window.
 
         Args:
             text: Full text document string.
@@ -193,18 +194,51 @@ class HybridLegalRetriever(BaseRetrieverPort):
         Returns:
             Tuple of (start_char_index, end_char_index, extracted_snippet_str).
         """
-        q_words = re.findall(r"\w+", query.lower())
-        best_pos = 0
+        if not text:
+            return 0, 0, ""
 
-        # Locate first matching word position
-        for w in q_words:
-            idx = text.lower().find(w)
-            if idx != -1:
-                best_pos = idx
-                break
+        lower_text = text.lower()
+        q_citations = extract_legal_citations(query)
+
+        # 1. Check if a statutory citation from the query appears in the text
+        best_pos = -1
+        if q_citations:
+            for m in re.finditer(r"(?:art(?:icle|igo)?\.?|§+|sec(?:tion)?\.?|s[úu]mula)\s*\d+", lower_text):
+                span_cites = extract_legal_citations(text[m.start() : min(len(text), m.end() + 24)])
+                if span_cites & q_citations:
+                    best_pos = m.start()
+                    break
+
+        # 2. Otherwise find the highest-density keyword window across non-stopword tokens
+        if best_pos == -1:
+            raw_words = re.findall(r"\w+", query.lower())
+            content_words = [w for w in raw_words if w not in self._STOPWORDS and len(w) >= 2]
+            target_words = content_words if content_words else raw_words
+
+            candidate_positions: list[int] = []
+            for w in target_words:
+                pos = lower_text.find(w)
+                while pos != -1:
+                    candidate_positions.append(pos)
+                    pos = lower_text.find(w, pos + len(w))
+
+            if candidate_positions:
+                best_density = -1.0
+                best_pos = candidate_positions[0]
+                for cand in candidate_positions:
+                    win_start = max(0, cand - 20)
+                    win_end = min(len(text), win_start + max_chars)
+                    window_slice = lower_text[win_start:win_end]
+                    density = sum(len(w) for w in set(target_words) if w in window_slice)
+                    if density > best_density:
+                        best_density = float(density)
+                        best_pos = cand
+            else:
+                best_pos = 0
 
         start_idx = max(0, best_pos - 20)
         end_idx = min(len(text), start_idx + max_chars)
         snippet = text[start_idx:end_idx]
 
         return start_idx, end_idx, snippet
+

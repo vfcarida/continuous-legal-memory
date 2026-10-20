@@ -1,5 +1,5 @@
 """
-Unit tests for CLM-T07 Legal Precedence, Right-to-Erasure, and Persistence.
+Unit tests for Legal Precedence, Right-to-Erasure, and SQLite Persistence.
 
 Tests:
 1. Lex superior authority hierarchy overrides recency in conflict splits.
@@ -295,7 +295,7 @@ def test_sqlite_memory_store_base_port(tmp_path: Path) -> None:
 
 
 def test_delete_rule_sub_10ms_latency_in_structured_mode(offline_encoder: BaseEncoderPort) -> None:
-    """Verify that delete_rule executes in sub-10ms without blocking CPU optimization (Defect 1)."""
+    """Verify that delete_rule executes in sub-10ms without blocking CPU optimization."""
     import time
     orch = LegalMemoryOrchestrator(encoder=offline_encoder, value_dim=2, engine_mode="structured")
 
@@ -317,5 +317,5 @@ def test_delete_rule_sub_10ms_latency_in_structured_mode(offline_encoder: BaseEn
 
     assert audit["status"] == "ERASED"
     assert audit["parametric_rebuilt"] is False
-    assert elapsed_ms < 50.0  # High-speed sub-50ms execution on CPU, eliminating Defect 1
+    assert elapsed_ms < 50.0  # High-speed sub-50ms execution on CPU
     assert len(orch.episodic_memory.get_records()) == 29

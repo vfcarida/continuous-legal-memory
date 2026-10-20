@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+title: "Continuous Legal Memory: Bi-Temporal Deontic Precedence and Verifiable Compliance Memory for Legal AI Agents"
+message: "If you use Continuous Legal Memory in your research or enterprise systems, please cite it using the metadata below."
+type: software
+authors:
+  - family-names: "Caridá"
+    given-names: "Vinicius"
+    email: "vfcarida@gmail.com"
+    alias: "vfcarida"
+repository-code: "https://github.com/vfcarida/continuous-legal-memory"
+url: "https://vfcarida.github.io/continuous-legal-memory/"
+license: MIT
+version: "1.2.0"
+date-released: "2026-10-19"
+keywords:
+  - legal-ai
+  - agent-memory
+  - deontic-logic
+  - legal-precedence
+  - bitemporal-graph
+  - hipporag
+  - gdpr-article-17
+  - eu-ai-act
+  - model-context-protocol
+  - post-quantum-cryptography
+  - cryptographic-attestation

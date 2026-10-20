@@ -69,7 +69,8 @@ nav:
       - Command-Line Interface (CLI): reference/cli.md
       - Domain Models & Interfaces: reference/models-and-exceptions.md
       - Cryptographic Attestation: reference/attestation.md
-  - Evaluation:
+  - Evaluation & References:
       - Benchmark Methodology: evaluation/methodology.md
       - LegalBench-RAG Evaluation: evaluation/legalbench.md
       - Baseline Report: BASELINE.md
+      - Scientific & Regulatory References: REFERENCES.md

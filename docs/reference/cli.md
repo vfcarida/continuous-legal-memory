@@ -126,7 +126,7 @@ clm query "QUERY_TEXT" --db-path PATH [options]
 
 ## 4. `clm erase`
 
-Executes deterministic Right-to-Erasure (GDPR Art. 17 / CLM-R7) across all memory tiers, recording an immutable cryptographic tombstone.
+Executes deterministic Right-to-Erasure (GDPR Art. 17) across all memory tiers, recording an immutable cryptographic tombstone.
 
 ```bash
 clm erase RECORD_ID --db-path PATH [options]
@@ -217,3 +217,44 @@ clm evaluate [options]
 | `--benchmark PATH` | `tests/fixtures/synthetic_legal_benchmark.jsonl` | Benchmark dataset filepath. |
 | `--engine-mode MODE` | `structured` | Retrieval engine mode (`structured` or `hybrid`). |
 | `--output PATH` | `None` | Optional JSON file destination to export metrics. |
+
+---
+
+## 8. `clm mcp`
+
+Launches the zero-dependency Model Context Protocol (MCP) JSON-RPC 2.0 server over standard input/output (`stdio`) for integration with MCP-compatible agent hosts.
+
+```bash
+clm mcp [options]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--db-path PATH` | `None` | Optional path to persistent SQLite database. |
+| `--engine-mode MODE` | `structured` | Core retrieval engine mode (`structured` or `hybrid`). |
+| `--enable-attestation` | `False` | Attach cryptographic attestation tokens to predictions. |
+| `--mock-encoder` | `False` | Use offline `SemanticMockEncoder` for testing. |
+
+---
+
+## 9. Governance, Formal Verification & Cryptographic Audit Subcommands (`v1.2.0`)
+
+| Subcommand | Synopsis |
+|---|---|
+| `clm audit --db-path PATH` | Run formal deontic consistency and Tarjan SCC cycle auditing (`DeonticConsistencyChecker`). |
+| `clm merkle-proof RULE_ID --db-path PATH` | Generate a 256-bit Sparse Merkle Tree inclusion or non-membership erasure proof. |
+| `clm compliance-proof RECORD_ID --db-path PATH` | Generate a zero-knowledge selective-disclosure normative compliance proof. |
+| `clm export-bundle --db-path PATH --output BUNDLE.json` | Export a cryptographically signed `.clm.bundle.json` snapshot. |
+| `clm restore-bundle --db-path PATH --bundle BUNDLE.json` | Verify and restore a signed portable compliance bundle. |
+| `clm simulate-rule --db-path PATH --text TEXT` | Run a non-mutating $\mathbf{KD}$ modal satisfiability pre-flight simulation. |
+| `clm repair-rule --db-path PATH --text TEXT` | Synthesize and re-verify conflict-free legislative/contract repair proposals. |
+| `clm simulate-timeline --db-path PATH` | Simulate bi-temporal regulatory horizon transitions across `valid_from` / `valid_to` epochs. |
+| `clm amendment-impact RULE_ID --db-path PATH --text TEXT` | Analyze clause-level statutory amendment diffs and downstream obligation impacts. |
+| `clm export-smtlib --db-path PATH` | Export active tenant norms as a formal SMT-LIB 2.6 (`QF_UFLIA`) script for Z3 / cvc5. |
+| `clm export-verifier --db-path PATH --output audit.html` | Export a zero-dependency HTML5 + WebCrypto standalone audit verifier. |
+| `clm tee-quote --db-path PATH --platform AWS_NITRO` | Generate a hardware-anchored TEE remote attestation quote (`AWS_NITRO` or `INTEL_TDX`). |
+| `clm timestamp-root --db-path PATH` | Issue an RFC 3161-inspired cryptographic `TimestampToken` over the tenant Merkle root. |
+| `clm gossip-audit --db-path PATH --checkpoints-file FILE` | Audit cross-witness transparency log checkpoints for split-view equivocation. |
+| `clm key-list` / `clm key-rotate` / `clm key-revoke` | Manage `CryptographicKeyRing` lifecycle (`PQ-Hybrid-Ed25519-SHA256`, `Ed25519`, `HMAC-SHA256`). |

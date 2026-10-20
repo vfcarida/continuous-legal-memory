@@ -6,15 +6,9 @@ retrieved memory context states, providing verifiable tamper-detection for techn
 auditability and record-keeping controls.
 
 Trust Model & Scope:
-    This module implements a symmetric, single-trust-domain integrity tag (HMAC-SHA256).
-    Verification requires possession of the shared secret key. When configured with a durable
-    secret key (via secret_key parameter or CLM_ATTESTATION_SECRET environment variable),
-    attestation tokens can be verified across process instances and service restarts.
-    If no key is configured, an ephemeral in-process key is generated with single-session scope.
-
-    Asymmetric multi-party zero-trust signatures (e.g., Ed25519 or RSA-PSS with public-key
-    distribution) require an external cryptographic provider (e.g., cryptography library)
-    and are scoped as future work.
+    This module provides both symmetric single-trust-domain integrity tags (`KeyedHashAttestationModule`,
+    HMAC-SHA256) and asymmetric zero-trust digital signatures (`AsymmetricAttestationModule`,
+    RFC 8032 Ed25519) for non-repudiable judicial and regulatory auditability.
 """
 
 from __future__ import annotations

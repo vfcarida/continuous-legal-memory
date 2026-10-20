@@ -113,3 +113,34 @@ class BaseRetrieverPort(ABC):
 
 # Backward-compatibility / ergonomic alias
 RetrieverPort = BaseRetrieverPort
+
+
+class BaseRerankerPort(ABC):
+    """
+    Abstract Port for Second-Stage Cross-Encoder Legal Rerankers.
+
+    Rationale:
+        Bi-encoder vector similarity can dilute fine-grained statutory pinpoint citations,
+        article numbers, and deontic modal operators ('shall not', 'must retain', 'exempt').
+        A second-stage reranker computes pairwise query-statute interaction scores over
+        candidate records before legal precedence and softmax attention weighting.
+    """
+
+    @abstractmethod
+    def score_pairs(
+        self,
+        query_text: str,
+        records: list[MemoryRecord],
+    ) -> torch.Tensor:
+        """
+        Compute relevance interaction scores between `query_text` and each record in `records`.
+
+        Args:
+            query_text: Input legal query string.
+            records: Candidate `MemoryRecord` objects.
+
+        Returns:
+            1D PyTorch Tensor of shape `(len(records),)` with pairwise relevance scores.
+        """
+        pass
+

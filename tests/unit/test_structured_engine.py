@@ -1,5 +1,5 @@
 """
-Unit tests for TemporalStructuredRetriever and orchestrator engine strategy (ARCH-01, ARCH-02).
+Unit tests for TemporalStructuredRetriever and orchestrator engine strategy.
 """
 
 import time
@@ -110,7 +110,7 @@ def test_orchestrator_structured_supersedes_resolution(offline_encoder: BaseEnco
 
 def test_research_neural_head_warning() -> None:
     """Verify that ContinuousMemoryResearchHead emits ParametricNeuralHeadWarning upon instantiation."""
-    with pytest.warns(ParametricNeuralHeadWarning, match="CLM-T08 NO-GO"):
+    with pytest.warns(ParametricNeuralHeadWarning, match="experimental research component"):
         head = ContinuousMemoryResearchHead(embed_dim=64, value_dim=2)
         assert head.embed_dim == 64
         assert head.value_dim == 2

@@ -1,5 +1,5 @@
 """
-CLM-T08 Comprehensive Evaluation Harness.
+Comprehensive Legal Memory Evaluation Harness.
 
 Implements reproducible benchmark execution across:
 1. Standard baselines: NoMemory, BoundedHistory, PlainRAG, TemporalStructured, HybridMemory.
@@ -684,7 +684,7 @@ class EvaluationHarness:
         gng = results["go_no_go"]
 
         report = [
-            "# Synthetic Legal Memory Benchmark Report (CLM-T08)",
+            "# Synthetic Legal Memory Benchmark Report",
             "",
             "> [!NOTE]",
             "> **Disclaimer**: This benchmark uses a deterministic synthetic dataset (`SyntheticLegalBenchmark-v1`).",

@@ -1,5 +1,5 @@
 """
-Unit tests for CLM-T08 Evaluation Harness and Synthetic Benchmark.
+Unit tests for the Evaluation Harness and Synthetic Legal Benchmark.
 
 Validates:
 1. Benchmark dataset parsing and schema validation.

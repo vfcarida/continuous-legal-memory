@@ -1,5 +1,5 @@
 """
-Unit tests for CLM-T06 Subsystem Reachability and Clean Interfaces.
+Unit tests for Subsystem Reachability and Clean Hexagonal Interfaces.
 
 Verifies that all advertised subsystems (RetrieverPort / HybridLegalRetriever,
 SemanticKnowledgeGraph, BaseMemoryStorePort, TelemetryLogger, and KeyedHashAttestationModule)

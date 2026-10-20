@@ -81,16 +81,47 @@ class MemoryRecord:
     personal_data: bool = False
     tenant_id: str = "default"
 
-    def is_temporally_valid(self, at_time: datetime | None = None) -> bool:
+    def is_known_as_of(self, as_of_transaction_time: datetime | None = None) -> bool:
         """
-        Check if the memory record is valid at a given timestamp.
+        Check if the memory record was ingested at or before `as_of_transaction_time`.
 
         Args:
-            at_time: The timestamp to evaluate validity against. Defaults to current UTC time.
+            as_of_transaction_time: Optional transaction-time cutoff for point-in-time auditing.
 
         Returns:
-            True if the record is currently valid; False if it has expired or been invalidated.
+            True if `as_of_transaction_time` is None or `self.transaction_time <= as_of_transaction_time`.
         """
+        if as_of_transaction_time is None:
+            return True
+        cutoff = (
+            as_of_transaction_time.replace(tzinfo=timezone.utc)
+            if as_of_transaction_time.tzinfo is None
+            else as_of_transaction_time
+        )
+        tx = (
+            self.transaction_time.replace(tzinfo=timezone.utc)
+            if self.transaction_time.tzinfo is None
+            else self.transaction_time
+        )
+        return tx <= cutoff
+
+    def is_temporally_valid(
+        self,
+        at_time: datetime | None = None,
+        as_of_transaction_time: datetime | None = None,
+    ) -> bool:
+        """
+        Check if the memory record is valid at a given valid-time and known as of a transaction-time.
+
+        Args:
+            at_time: The valid-time timestamp to evaluate validity against. Defaults to current UTC time.
+            as_of_transaction_time: Optional transaction-time cutoff for bi-temporal 'as-of' replay.
+
+        Returns:
+            True if the record is valid on both temporal axes; False otherwise.
+        """
+        if not self.is_known_as_of(as_of_transaction_time):
+            return False
         check_time = at_time or datetime.now(timezone.utc)
         if check_time.tzinfo is None:
             check_time = check_time.replace(tzinfo=timezone.utc)
@@ -130,6 +161,25 @@ class GraphNode:
     valid_to: datetime | None = None
     decay_factor: float = 1.0
     tenant_id: str = "default"
+    transaction_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def is_known_as_of(self, as_of_transaction_time: datetime | None = None) -> bool:
+        """
+        Check if the graph node was ingested at or before `as_of_transaction_time`.
+        """
+        if as_of_transaction_time is None:
+            return True
+        cutoff = (
+            as_of_transaction_time.replace(tzinfo=timezone.utc)
+            if as_of_transaction_time.tzinfo is None
+            else as_of_transaction_time
+        )
+        tx = (
+            self.transaction_time.replace(tzinfo=timezone.utc)
+            if self.transaction_time.tzinfo is None
+            else self.transaction_time
+        )
+        return tx <= cutoff
 
 
 @dataclass
@@ -181,3 +231,16 @@ class PredictionResult:
     attestation_token: Any | None = None
     retrieved_snippets: list[str] | None = None
     tenant_id: str = "default"
+    abstained: bool = False
+    abstention_reason: str | None = None
+    max_similarity: float | None = None
+    conformal_set: list[int] | None = None
+    conformal_threshold: float | None = None
+    conformal_alpha: float | None = None
+    choice_of_law: dict[str, Any] | None = None
+    proof_trace: dict[str, Any] | None = None
+    merkle_root: str | None = None
+    compliance_proof: dict[str, Any] | None = None
+
+
+

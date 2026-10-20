@@ -2,7 +2,8 @@
 Letta (formerly MemGPT) Integration Adapter for Continuous Legal Memory.
 
 Provides a Letta-compatible memory block and tool interfaces, allowing autonomous agents
-to query legal precedence, execute multi-hop graph associations, and ingest compliance rules.
+to query legal precedence, execute multi-hop graph associations, run pre-flight KD modal
+simulations, synthesize normative drafting repairs, and execute GDPR Art. 17 erasure.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ class ContinuousLegalMemoryBlock:
         Letta structures long-term agent memory into distinct blocks within the agent's context window.
         `ContinuousLegalMemoryBlock` bridges Continuous Legal Memory into Letta's block interface,
         exposing an auto-updating textual summary of active governing statutes while backing queries
-        with deterministic precedence resolution and multi-tenant isolation.
+        with deterministic precedence resolution, pre-flight simulation, and multi-tenant isolation.
     """
 
     def __init__(
@@ -109,20 +110,29 @@ class ContinuousLegalMemoryBlock:
         self,
         query: str,
         at_time: datetime | None = None,
+        as_of_transaction_time: datetime | None = None,
+        jurisdiction: str | list[str] | None = None,
+        connecting_factors: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
-        Query legal memory for the governing directive and decision vector.
+        Query legal memory for the governing directive, decision vector, and audit proofs.
 
         Args:
             query: Query string describing the legal factual scenario.
             at_time: Optional datetime for temporal validity evaluation.
+            as_of_transaction_time: Optional transaction-time cutoff for bi-temporal replay.
+            jurisdiction: Optional jurisdiction filter.
+            connecting_factors: Optional Rome I / Rome II / GDPR connecting factors.
 
         Returns:
-            Dictionary with governing rule, predicted action vector, and snippets.
+            Dictionary with governing rule, predicted action vector, snippets, and audit proofs.
         """
         result = self.orchestrator.predict(
             query_text=query,
             at_time=at_time,
+            as_of_transaction_time=as_of_transaction_time,
+            jurisdiction=jurisdiction,
+            connecting_factors=connecting_factors,
             tenant_id=self.tenant_id,
         )
         return {
@@ -131,7 +141,57 @@ class ContinuousLegalMemoryBlock:
             "predicted_action_vector": result.predicted_action_vector,
             "retrieved_snippets": result.retrieved_snippets,
             "confidence": result.confidence,
+            "abstained": result.abstained,
+            "abstention_reason": result.abstention_reason,
+            "proof_trace": result.proof_trace,
+            "merkle_root": result.merkle_root,
+            "conformal_set": result.conformal_set,
         }
+
+    def simulate_rule(
+        self,
+        rule_text: str,
+        action_vector: list[float] | None = None,
+        authority_rank: int = 1,
+        jurisdiction: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Run a non-mutating pre-flight KD modal simulation for a candidate rule."""
+        report = self.orchestrator.simulate_rule_ingestion(
+            rule_text=rule_text,
+            action_vector=action_vector,
+            authority_rank=authority_rank,
+            jurisdiction=jurisdiction,
+            metadata=metadata,
+            tenant_id=self.tenant_id or "default",
+        )
+        return report.to_dict()
+
+    def propose_repairs(
+        self,
+        rule_text: str,
+        action_vector: list[float] | None = None,
+        authority_rank: int = 1,
+        jurisdiction: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Synthesize and pre-verify normative drafting repair options for a candidate rule."""
+        report = self.orchestrator.propose_norm_repairs(
+            rule_text=rule_text,
+            action_vector=action_vector,
+            authority_rank=authority_rank,
+            jurisdiction=jurisdiction,
+            metadata=metadata,
+            tenant_id=self.tenant_id or "default",
+        )
+        return report.to_dict()
+
+    def erase_rule(self, record_id: str) -> dict[str, Any]:
+        """Execute GDPR Art. 17 right-to-erasure across all memory tiers and return audit proof."""
+        return self.orchestrator.delete_rule(
+            record_id=record_id,
+            tenant_id=self.tenant_id,
+        )
 
     def associate(
         self,
@@ -184,6 +244,8 @@ def create_letta_tools(
     def legal_memory_search(query: str) -> str:
         """Search legal memory for governing directives and recommended decisions."""
         res = block.search(query)
+        if res.get("abstained"):
+            return f"Abstained: {res.get('abstention_reason')}"
         if not res["most_relevant_rule"]:
             return "No governing legal rule found in active memory."
         return (
@@ -206,8 +268,45 @@ def create_letta_tools(
             lines.append(f"- [{a['entity_type']}] {a['node_id']}: {a['label']} (PPR: {a['score']:.4f})")
         return "\n".join(lines)
 
+    def legal_memory_simulate(
+        rule_text: str,
+        action_vector: list[float] | None = None,
+        authority_rank: int = 1,
+    ) -> str:
+        """Run a non-mutating pre-flight KD modal satisfiability simulation for a candidate rule."""
+        rep = block.simulate_rule(rule_text, action_vector=action_vector, authority_rank=authority_rank)
+        return (
+            f"Satisfiable: {rep['is_satisfiable']} | Modality: {rep['candidate_modality']} | "
+            f"Unresolved Conflicts: {len(rep['unresolved_conflicts'])} | "
+            f"Shadowed By: {rep['shadowed_by']}"
+        )
+
+    def legal_memory_repair(
+        rule_text: str,
+        action_vector: list[float] | None = None,
+        authority_rank: int = 1,
+    ) -> str:
+        """Synthesize verified normative drafting repair proposals for a conflicting or shadowed rule."""
+        rep = block.propose_repairs(rule_text, action_vector=action_vector, authority_rank=authority_rank)
+        if not rep["needs_repair"]:
+            return "No normative repair required; candidate rule is KD-satisfiable and unshadowed."
+        rec = rep.get("recommended_option") or {}
+        return (
+            f"Needs Repair: True | Strategy: {rec.get('strategy')} | "
+            f"Repaired Text: {rec.get('repaired_text')} | "
+            f"Repaired Authority Rank: {rec.get('repaired_authority_rank')}"
+        )
+
+    def legal_memory_erase(record_id: str) -> str:
+        """Erase a rule across all memory tiers (GDPR Art. 17) and return its Merkle non-membership root."""
+        res = block.erase_rule(record_id)
+        return f"Erased '{res['record_id']}' | Status: {res['status']} | Merkle Root: {res['merkle_root']}"
+
     return {
         "legal_memory_search": legal_memory_search,
         "legal_memory_insert": legal_memory_insert,
         "legal_memory_associate": legal_memory_associate,
+        "legal_memory_simulate": legal_memory_simulate,
+        "legal_memory_repair": legal_memory_repair,
+        "legal_memory_erase": legal_memory_erase,
     }

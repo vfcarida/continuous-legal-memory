@@ -1,11 +1,14 @@
-# Continuous Legal Memory Engine
+# Continuous Legal Memory (CLM)
 
 [![CI & MLOps Pipeline](https://github.com/vfcarida/continuous-legal-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/vfcarida/continuous-legal-memory/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![Architecture](https://img.shields.io/badge/architecture-Hexagonal%20Ports%20%26%20Adapters-green.svg)](#architecture)
-[![Status](https://img.shields.io/badge/status-research%20proof--of--concept-yellow.svg)](#current-limitations--roadmap)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Architecture](https://img.shields.io/badge/architecture-Hexagonal%20Ports%20%26%20Adapters-green.svg)](#technical-architecture-overview)
+[![MCP Compatible](https://img.shields.io/badge/MCP-JSON--RPC%202.0-purple.svg)](#model-context-protocol-mcp--rest-microservice)
 
-A research proof-of-concept cognitive memory framework for legal LLM agents. Features frozen-encoder online rule ingestion via dual-timescale associative neural adaptation (`ContinuousMemory` + `HopeModule`, adapting a small memory head MLP via local gradient descent while the base encoder remains frozen), multi-tier memory structures (Working, Episodic, and Semantic Knowledge Graph prototype), offline-first privacy protection, LegalBench-RAG precision retrieval, and cryptographic attestation & evaluation prototypes.
+**Continuous Legal Memory (CLM)** is an open-source, bi-temporal cognitive memory and normative compliance framework for legal AI agents and regulated enterprise systems.
+
+Unlike general-purpose agent memory layers (`mem0`, `letta`, `graphiti`) that treat stored knowledge as flat vector chunks, CLM embeds **formal statutory interpretation canons** (*lex superior*, *lex specialis*, *lex posterior*, and explicit `SUPERSEDES` graph relations), **bi-temporal validity** (`valid_time` vs. `transaction_time`), **HippoRAG Personalized PageRank graph diffusion**, **calibrated epistemic abstention** (EU AI Act Art. 14), and **cryptographically attested GDPR Article 17 erasure** (HMAC-SHA256 & RFC 8032 Ed25519) into a deterministic, sub-10ms engine with native **Model Context Protocol (MCP)** interoperability.
 
 ---
 
@@ -13,182 +16,214 @@ A research proof-of-concept cognitive memory framework for legal LLM agents. Fea
 
 ```mermaid
 graph TD
-    subgraph "Hexagonal Application Orchestrator"
-        A[LegalMemoryOrchestrator]
+    subgraph "Interfaces & Agent Protocols"
+        P1["Python SDK & Async API"]
+        P2["MCP Server (JSON-RPC 2.0 stdio & /v1/mcp)"]
+        P3["REST API & Unified CLI (clm)"]
+        P4["Adapters: LangChain / LlamaIndex / Letta"]
     end
 
-    subgraph "Encoder Ports & Adapters"
-        B[BaseEncoderPort] --> C[HuggingFaceEncoderAdapter]
-        B --> D[OllamaGemmaAdapter - Offline Edge]
+    subgraph "Hexagonal Application Service"
+        A["LegalMemoryOrchestrator (Tenant-Isolated & Thread-Safe)"]
     end
 
-    subgraph "Retriever Ports & Adapters"
-        R[BaseRetrieverPort] --> R1[DefaultAttentionRetriever - Cosine & Importance]
-        R --> R2[HybridLegalRetriever - BM25 & Dense & Snippets]
+    subgraph "Encoder & Retriever Ports"
+        B["BaseEncoderPort"] --> C["HuggingFaceEncoderAdapter (BAAI/bge-small-en-v1.5)"]
+        B --> D["OllamaGemmaAdapter (Offline Edge Privacy)"]
+        R["BaseRetrieverPort"] --> R1["TemporalStructuredRetriever (Tri-Canon Precedence)"]
+        R --> R2["HybridLegalRetriever (BM25 + Dense + Snippets)"]
     end
 
-    subgraph "Multi-Tier Cognitive Memory System"
-        E[Working Memory Cache - Sliding Window]
-        F[Episodic Ledger - BaseMemoryStorePort & Hash Chain]
-        G[Semantic Knowledge Graph - Entity Nodes & Relations]
+    subgraph "Multi-Tier Cognitive Memory & Persistence"
+        E["Working Memory (Sliding Window Context)"]
+        F["Episodic Ledger (SqliteMemoryStore WAL & Hash Chain)"]
+        G["Semantic Knowledge Graph (HippoRAG Personalized PageRank)"]
     end
 
-    subgraph "Neural Continuum Memory Core"
-        H[Hope Module - Attention & Dynamic Routing] --> I[Fast Network - Gradient-Adapted MLP]
-        H --> J[Slow Network - Long-Term EMA Consolidation]
+    subgraph "Governance, Guardrails & Attestation"
+        G1["Epistemic Abstention Gate (min_similarity_threshold)"]
+        K1["KeyedHashAttestationModule (HMAC-SHA256)"]
+        K2["AsymmetricAttestationModule (RFC 8032 Ed25519)"]
+        T["TelemetryLogger & OpenMetrics Exporter"]
     end
 
-    subgraph "Observability & Security (Opt-In Hooks)"
-        K[Keyed-Hash Attestation Module - HMAC-SHA256]
-        T[Telemetry Logger - Latency & Tokens Tracing]
-    end
-
-    subgraph "Standalone / Future Roadmap Modules"
-        M[Agentic LLMOps Evaluator - Heuristic Metrics - CLM-T08]
-    end
-
+    P1 --> A
+    P2 --> A
+    P3 --> A
+    P4 --> A
     A --> B
+    A --> R
     A --> E
     A --> F
     A --> G
-    A --> H
-    H --> R
-    A -.->|Opt-in hook| K
-    A -.->|Opt-in hook| T
-    M -.->|External eval harness| A
+    A --> G1
+    A --> K1
+    A --> K2
+    A --> T
 ```
 
 ---
 
-## Key Features
+## Core Capabilities
 
-### 1. Hexagonal Ports & Adapters (SOLID Architecture)
-- **Decoupled Infrastructure**: Core neural memory networks and legal domain logic are isolated from underlying transformer frameworks, vector databases, and storage providers via `BaseEncoderPort`, `BaseRetrieverPort`, and `BaseMemoryStorePort`.
-- **Bespoke Exception Hierarchy**: Domain errors (`ContextWindowExceededError`, `MemoryContradictionError`, `TemporalInvalidationError`, `EncoderInferenceError`, `InvalidMemoryVectorError`) enable structured resilience workflows.
+### 1. Tri-Canon Deontic Precedence & Conflict Resolution
+- ***Lex Superior Derogat Legi Inferiori* (`authority_rank`)**: Constitutional and federal statutes strictly override subordinate corporate policies or client preferences, regardless of recency.
+- ***Lex Specialis Derogat Legi Generali* (`specificity`)**: Within matching authority tiers, more specific regulatory clauses override general provisions.
+- ***Lex Posterior Derogat Legi Priori* (`valid_from` *in pari materia*)**: Within matching authority and specificity tiers, chronologically newer provisions on the same subject matter supersede older provisions.
+- **Explicit `SUPERSEDES` Graph Suppression**: Direct statutory amendments (`metadata={"supersedes": ...}` or `RelationType.SUPERSEDES`) deterministically suppress superseded rules.
 
-### 2. Multi-Tier Cognitive Memory System
-- **Working Memory**: Sliding-window context cache for active legal session turn tracking.
-- **Episodic Memory**: Timestamp-backed chronological ledger of legal interactions with SHA-256 hash chaining, implementing `BaseMemoryStorePort`.
-- **Semantic Knowledge Graph**: Entity-typed network (`STATUTE`, `CLAUSE`, `CLIENT_PREFERENCE`) mapping prerequisite dependencies (`DEPENDS_ON`) and logical contradictions (`CONTRADICTS`), populated during memory ingestion and resolving `source_tier` evaluation.
+### 2. Epistemic Abstention Guardrails (EU AI Act Article 14)
+- **Calibrated Refusal Path**: When query-to-memory cosine similarity falls below `min_similarity_threshold`, `orchestrator.predict()` refuses to extrapolate and returns `abstained=True`, a zeroed action vector, and a diagnostic `abstention_reason` alongside `max_similarity`.
 
-### 3. Legal Precedence & Hierarchical Conflict Resolution
-- **Lex Superior Governance**: Resolves conflicts by hierarchical authority ranks (`authority_rank`, `jurisdiction`) first, explicit `SUPERSEDES` graph relations second, and valid-time recency (*lex posterior*) last within matching authority tiers. Recency alone never overrides higher-authority statutes.
-- **Statutory Authority Routing**: When competing candidates exhibit differing authority tiers, the decision is strictly governed by associative retrieval of the superior statute, preventing subordinate neural weights from biasing outputs.
+### 3. Bi-Temporal Multi-Tier Cognitive Memory, Hybrid Citation Pinpointing & HippoRAG Diffusion
+- **Working Memory**: Capacity-bounded sliding window for active session context.
+- **Strict Bi-Temporal Ledger (`at_time` $\times$ `as_of_transaction_time`)**: Append-only chronological ledger with SHA-256 hash chaining supporting dual-axis queries across **valid time** (`valid_from` / `valid_to`) and **transaction time** (`as_of_transaction_time`) alongside historical `AppendOnlyMerkleLog.get_root_as_of()` replay.
+- **Hybrid Lexical-Dense Retrieval (`HybridLexicalCitationScorer`)**: Combines Okapi BM25+ lexical scoring with multi-jurisdictional statutory pin-cite extraction (`Art. 17(3)(b) GDPR`, `28 U.S.C. § 1332`, `Lei 13.709/2018 Art. 7`) inside `TemporalStructuredRetriever`.
+- **Semantic Knowledge Graph + HippoRAG PPR**: Entity-typed legal graph (`STATUTE`, `CLAUSE`, `CASE_PRECEDENT`, `OBLIGATION`, `PROHIBITION`, `PERMISSION`) supporting `CONTRADICTS`, `DEPENDS_ON`, and `SUPERSEDES` edges with acyclic guards and multi-hop Personalized PageRank diffusion (`orchestrator.associate_statutes()`).
 
-### 4. GDPR Art. 17 Right-to-Erasure & Tombstone Audit Trail
-- **Personal Data Confinement**: Rules flagged as personal data (`personal_data=True`) are strictly confined to episodic ledgers and retrieval buffers, completely bypassing parametric absorption into neural network weights (`fast_net`/`slow_net`).
-- **Complete Multi-Tier Erasure**: `orchestrator.delete_rule(record_id)` purges records across all 4 tiers (working memory, episodic ledger, semantic graph, neural buffers), appends an immutable SHA-256 tombstone to the cryptographic hash chain, and re-consolidates neural head parameters from retained records, returning a structured audit receipt.
+### 4. GDPR Article 17 Right-to-Erasure, Sparse Merkle Proofs & Defeasible Proof Traces (EU AI Act Art. 12, 13 & 86)
+- **Personal Data Confinement**: Records marked `personal_data=True` never touch neural parameters (`skip_parametric=True`).
+- **256-Bit Sparse Merkle Tree Erasure Proofs**: `orchestrator.delete_rule(record_id)` purges matching records across all tiers and generates an RFC 6962 cryptographic non-membership proof (`merkle_non_membership_proof`) persisted in SQLite WAL.
+- **Defeasible Proof-Tree Explanation (`DefeasibleProofTrace`)**: Every prediction generates a SHA-256 hashed derivation trace (`result.proof_trace`) recording candidate evaluation and the exact canon (`DEFEATED_BY_SUPERSEDES`, `DEFEATED_BY_LOIS_DE_POLICE`, `DEFEATED_BY_LEX_SUPERIOR`, `DEFEATED_BY_LEX_SPECIALIS`, `DEFEATED_BY_LEX_POSTERIOR`, `EXCLUDED_TRANSACTION_TIME`) for every competing norm.
+- **Dual Cryptographic Attestation**: Supports symmetric **HMAC-SHA256** (`KeyedHashAttestationModule`) and zero-trust asymmetric **RFC 8032 Ed25519** digital signatures (`AsymmetricAttestationModule`).
 
-### 5. Durable Cross-Session Persistence (`BaseMemoryStorePort`)
-- **SQLite Storage Backend**: Concrete `SqliteMemoryStore` serializes neural key/value/importance buffers, `fast_net`/`slow_net` parameter states, episodic ledger records, semantic graph entities/relations, and hash chains into SQLite.
-- **Cross-Process Determinism**: `orchestrator.save_to_disk(path)` and `load_from_disk(path)` reconstruct identical cognitive and neural memory states, reproducing bit-for-bit identical predictions across independent Python sessions.
+### 5. Strict Multi-Tenant Isolation & SQLite WAL Persistence
+- **Zero Cross-Tenant Leakage**: Tenant boundaries (`tenant_id` and `with orchestrator.tenant("firm_a"):`) isolate Working Memory, Episodic Ledgers, and Semantic Knowledge Graphs (`0.00%` cross-tenant leakage verified in adversarial benchmarks).
+- **ACID Persistence**: `SqliteMemoryStore` operates with Write-Ahead Logging (`PRAGMA journal_mode = WAL`) for concurrent thread-safe persistence via `save_to_disk()` and `load_from_disk()`.
 
-### 6. Offline-First Privacy Protection
-- **Strict Privacy Mode**: Enforces on-device processing via `OllamaGemmaAdapter` (`http://localhost:11434`), blocking remote endpoints to prevent cloud telemetry and data leakage under attorney-client privilege.
-
-### 7. Precision Hybrid Retrieval & Cryptographic Attestation
-- **Pluggable Retrieval (`BaseRetrieverPort`)**: Supports both `DefaultAttentionRetriever` (cosine similarity $\times$ rule importance softmax) and `HybridLegalRetriever` (combining BM25 keyword matching, dense vector embeddings, and exact character snippet extraction).
-- **Keyed-Hash Attestation (`KeyedHashAttestationModule`)**: Generates deterministic SHA-256 state digests and HMAC-SHA256 integrity tags over retrieved contexts and decision outputs, wired via opt-in orchestrator hook.
-- **Observability & Telemetry (`TelemetryLogger`)**: Traces pipeline latency and estimated token processing per operation, wired via opt-in orchestrator hook.
-
-### 8. Systematic Evaluation Harness & Baselines (CLM-T08)
-- **Multi-Baseline Comparison**: The `EvaluationHarness` tests memory against 5 standard baselines: No-Memory, Bounded-History ($k=3$), Plain RAG (vector-only), Temporal Structured (retrieval + legal precedence), and Hybrid Continuum Memory (full CMS).
-- **Synthetic Ground-Truth Benchmark**: Evaluated across 60 synthetic legal directives and 40 multi-scenario queries (`tests/fixtures/synthetic_legal_benchmark.jsonl`), testing authority hierarchies, explicit supersession, temporal expiration, right-to-erasure, adversarial poisoning, and multi-tenant cross-talk.
-- **Statistical Rigor**: Runs across $\ge 20$ random initialization seeds with mean $\pm$ std reporting.
-- **Full Benchmark Report**: Complete empirical findings and ablation sweeps are documented in [`docs/evaluation_report.md`](docs/evaluation_report.md).
+### 6. Model Context Protocol (MCP), REST Microservice & Agent Ecosystem Interoperability
+- **Native MCP Server (`continuous_legal_memory.mcp.MCPServer`)**: Exposes JSON-RPC 2.0 tools (`legal_memory_ingest`, `legal_memory_predict`, `legal_memory_erase`, `legal_memory_associate`, `legal_memory_verify`, `legal_memory_audit_consistency`) and resources (`clm://context/{tenant_id}`, `clm://graph/{tenant_id}`, `clm://metrics`) over stdio (`clm mcp`) and HTTP (`POST /v1/mcp`).
+- **REST API & CLI Parity**: Exposes `/v1/rules`, `/v1/predict`, `/v1/audit/consistency`, `/v1/merkle/root`, `/v1/merkle/proof/{id}`, `/v1/merkle/verify`, and `/v1/conformal/calibrate` over HTTP and `clm` CLI subcommands.
+- **Framework Adapters**: Drop-in integrations for **LangChain** (`ContinuousLegalMemoryLangChain`), **LlamaIndex** (`ContinuousLegalMemoryLlamaRetriever`), and **Letta / MemGPT** (`ContinuousLegalMemoryBlock`).
 
 ---
 
-## Current Limitations & Roadmap
-
-This project is an experimental research proof-of-concept exploring neural-associative continuous legal memory. The following limitations and empirical findings are documented on the development roadmap:
-
-- **Empirical Evidence on Parametric Adaptation**: Systematic benchmarking across 20 seeds demonstrates that deterministic structured retrieval (`TemporalStructured` accuracy 85.3%) outperforms the hybrid parametric memory head (76.0%), while eliminating initialization variance. In production legal settings, deterministic structured retrieval is safer and more accurate than adapting parametric weights online.
-- **Parametric Unlearning & Personal Data**: In-place machine unlearning in continuous neural networks is notoriously unreliable. Continuous Legal Memory addresses this by strictly isolating personal data from parametric weights at ingestion time; complete erasure purges the retrieval tiers and re-consolidates the memory head from retained records.
-- **Keyed Hash vs. Asymmetric Signatures**: The attestation module implements symmetric HMAC-SHA256 with key configuration (shared secret or environment variable) for single-trust domain auditability. True asymmetric PKI signatures (e.g., Ed25519/RSA-PSS) with public-key distribution require external cryptographic libraries and are scoped as future work.
-- **Multi-Tenancy & Authorization**: As demonstrated by adversarial tenant-isolation probes in the evaluation harness, memory tiers do not currently enforce tenant isolation boundaries, resulting in cross-tenant leakage if distinct client data shares an orchestrator instance. Multi-tenant partitioning is a P0 roadmap item.
-
----
-
-## Installation & Setup
+## Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/vfcarida/continuous-legal-memory.git
 cd continuous-legal-memory
 
-# Basic installation (Python 3.10+)
+# Standard installation (Python 3.10+)
 pip install -e .
 
-# Developer installation
-pip install -e .[dev]
-
-# CLI Verification
-clm --help
-clm serve --host 127.0.0.1 --port 8000 --mock-encoder
-
-# Container Deployment
-docker compose up -d
+# Developer & test suite installation
+pip install -e ".[dev]"
 ```
 
 ---
 
-## Quickstart Example
+## Quickstart
+
+### Python SDK: Tri-Canon Precedence, Abstention & Ed25519 Attestation
 
 ```python
-from continuous_legal_memory.orchestrator import LegalMemoryOrchestrator
-from continuous_legal_memory.security.attestation import CryptographicAttestationModule
+from datetime import datetime, timezone
+from continuous_legal_memory import (
+    AsymmetricAttestationModule,
+    LegalMemoryOrchestrator,
+)
+from continuous_legal_memory.adapters.mock_encoder import SemanticMockEncoder
 
-# Initialize the Legal Memory Orchestrator
-orchestrator = LegalMemoryOrchestrator(value_dim=2)
-
-ACTION_DELETE = [1.0, 0.0]
-ACTION_RETAIN = [0.0, 1.0]
-
-# 1. Ingest baseline privacy legislation into active memory
-orchestrator.update_memory(
-    rule_text="Article 1: Every client has the right to request deletion of personal data.",
-    action_vector=ACTION_DELETE,
+# Initialize deterministic structured orchestrator with Ed25519 attestation & abstention guardrail
+attestor = AsymmetricAttestationModule()
+orchestrator = LegalMemoryOrchestrator(
+    encoder=SemanticMockEncoder(embedding_dim=64),
+    value_dim=2,  # [DELETE, RETAIN]
+    engine_mode="structured",
+    attestor=attestor,
+    min_similarity_threshold=0.25,
 )
 
-# 2. Ingest overriding anti-fraud directive (frozen base encoder; adapts memory head without LLM fine-tuning)
-orchestrator.update_memory(
-    rule_text="New Directive: Deletion of credit operation records active in last 5 years is strictly prohibited.",
-    action_vector=ACTION_RETAIN,
-)
+with orchestrator.tenant("bank_eu"):
+    # 1. Subordinate internal policy (Authority Rank 2 -> DELETE)
+    orchestrator.update_memory(
+        rule_text="Internal Policy: Delete customer credit transaction logs after 6 months.",
+        action_vector=[1.0, 0.0],
+        authority_rank=2,
+        valid_from=datetime(2025, 1, 1, tzinfo=timezone.utc),
+    )
 
-# 3. Query the model on a specific scenario
-query = "Client John paid off a loan last month and demands deletion of his financial credit history."
-result = orchestrator.predict(query)
+    # 2. Superior statutory mandate (Authority Rank 9 -> RETAIN)
+    orchestrator.update_memory(
+        rule_text="AML Banking Statute: Retain customer credit transaction logs for 5 years.",
+        action_vector=[0.0, 1.0],
+        authority_rank=9,
+        valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+    )
 
-print(f"Query: {result.query}")
-print(f"Top Rule: {result.most_relevant_rule}")
-print(f"Action Vector (Delete, Retain): {result.predicted_action_vector}")
-
-# 4. Generate audit attestation token (keyed-hash integrity tag)
-attestor = CryptographicAttestationModule()
-token = attestor.sign_attestation(result)
-print(f"Audit State SHA-256 Hash: {token.state_hash}")
-print(f"Keyed-Hash Tag: {token.signature[:32]}...")
+    # Query: Lex superior ensures Rank 9 statute prevails over newer Rank 2 policy
+    result = orchestrator.predict("Customer demands deletion of credit transaction logs.")
+    print(f"Governing Rule: {result.most_relevant_rule}")
+    print(f"Decision Vector (Delete, Retain): {result.predicted_action_vector}")
+    print(f"Abstained: {result.abstained} (Max Sim: {result.max_similarity:.3f})")
+    print(f"Ed25519 Signature Verified: {attestor.verify_attestation(result.attestation_token, result)}")
 ```
 
----
-
-## Verification & Testing
-
-Run the automated unit test suite and lint checks:
+### Model Context Protocol (MCP) & REST Microservice
 
 ```bash
-# Run Pytest offline test suite
-pytest tests/unit/test_domain.py tests/unit/test_ollama_adapter.py tests/unit/test_phase2_memory_tiers.py tests/unit/test_phase3_retrieval_and_mlops.py -v
+# Launch MCP JSON-RPC 2.0 server over stdio for Claude Desktop / Cursor / MCP clients
+clm mcp --db-path ./legal_memory.db --enable-attestation --mock-encoder
 
-# Run Ruff linter checks
-ruff check continuous_legal_memory tests
+# Launch multi-threaded REST API server (includes POST /v1/mcp and GET /metrics)
+clm serve --host 127.0.0.1 --port 8000 --db-path ./legal_memory.db --enable-telemetry --mock-encoder
 ```
 
 ---
 
-## Author & License
+## Empirical Evaluation & Maturity Summary
 
-Developed by **Vinicius Caridá** ([vfcarida@gmail.com](mailto:vfcarida@gmail.com)).  
-Released under the MIT License.
+Continuous Legal Memory includes a reproducible multi-seed evaluation harness (`continuous_legal_memory/evaluation/harness.py`), a 540-case Multi-Jurisdictional Statutory Graph Benchmark (`continuous_legal_memory/evaluation/multijurisdictional.py` covering `EU`, `US`, and `BR` with RAGAS and DeepEval adapters), and a LegalBench-RAG contract evaluation suite (`continuous_legal_memory/evaluation/legalbench_eval.py`). Full methodology and ablation tables are documented in [`docs/evaluation_report.md`](docs/evaluation_report.md) and [`ROADMAP.md`](ROADMAP.md).
+
+| Baseline Architecture | Overall Accuracy | Authority Correctness | Catastrophic Forgetting (BWT) | Poisoning ASR | Multi-Tenant Leakage |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **No-Memory** | `0.235 ± 0.000` | `0.200 ± 0.000` | `+0.000 ± 0.000` | N/A | N/A |
+| **Bounded-History ($k=3$)** | `0.765 ± 0.000` | `0.800 ± 0.000` | `+0.000 ± 0.000` | N/A | N/A |
+| **Plain RAG (Vector-Only)** | `0.794 ± 0.000` | `0.600 ± 0.000` | `+0.000 ± 0.000` | `33.33%` | `100.00%` |
+| **Temporal Structured (Default Engine)** | **`0.882 ± 0.000`** | **`0.800 ± 0.000`** | **`+0.000 ± 0.000`** | **`0.00%`** | **`0.00%`** |
+| **Hybrid Continuum Memory (`Experimental`)** | `0.760 ± 0.045` | `0.540 ± 0.092` | `+0.110 ± 0.118` | `0.00%` | `0.00%` |
+
+### v1.2.0 Capabilities (`Stable`)
+- **Cryptographic Timestamp Authority (RFC 3161) & Transparency Log Gossip (`TransparencyGossipAuditor`):** `issue_timestamp_token()` and `audit_transparency_gossip()` (`continuous_legal_memory/security/timestamp_gossip.py`) issue signed RFC 3161-inspired `TimestampToken`s over the tenant's 256-bit `SparseMerkleTree` root and `AppendOnlyMerkleLog` head, and audit cross-witness `GossipCheckpoint`s to detect split-view equivocation and history rollback (`POST /v1/merkle/timestamp`, `POST /v1/merkle/gossip-audit`, MCP `legal_memory_issue_timestamp` / `legal_memory_gossip_audit`, `clm timestamp-root` / `clm gossip-audit`).
+- **Automated Statutory Diff & Downstream Amendment Impact Analysis (`StatutoryAmendmentAnalyzer`):** `analyze_statutory_amendment()` (`continuous_legal_memory/reasoning/amendment_impact.py`) computes clause-level diffs (`ClauseDiffSpan`), tracks deontic modality shifts (`OBLIGATION` $\leftrightarrow$ `PROHIBITION` $\leftrightarrow$ `PERMISSION`), and traces the transitive compliance blast radius across subordinate contracts and corporate policies (`POST /v1/rules/amendment-impact`, MCP `legal_memory_amendment_impact`, `clm amendment-impact`).
+- **End-to-End Post-Quantum Hybrid Attestation (`PQ-Hybrid-Ed25519-SHA256`):** `PostQuantumHybridAttestationModule` (`continuous_legal_memory/security/pq_hybrid.py`) combines classical RFC 8032 `Ed25519` with a 67-chain ($w=16$) Winternitz **WOTS+-SHA256** (RFC 8391 / NIST FIPS 205) post-quantum hash-based signature across `CryptographicKeyRing`, `SelectiveDisclosureProver`, `PortableBundleManager`, `FederatedComplianceVerifier`, `TEEAttestationProvider`, `TransparencyGossipAuditor`, and `SparseMerkleProof`.
+- **Bi-Temporal Regulatory Horizon Simulator (`TemporalHorizonSimulator`):** `simulate_temporal_horizon()` (`continuous_legal_memory/reasoning/temporal_simulator.py`) sweeps across all `valid_from` phase-in and `valid_to` sunset boundaries within a target window to forecast deontic modality transitions (`O`, `F`, `P`), prevailing canons, and future horizontal antinomies (`POST /v1/rules/timeline`, MCP `legal_memory_simulate_timeline`, `clm simulate-timeline`).
+- **Client-Side Standalone Audit Verifier (`StandaloneAuditVerifierExporter`) & OpenAPI 3.1.0 Specification:** `export_standalone_verifier()` (`continuous_legal_memory/security/standalone_verifier.py`) generates a self-contained, zero-dependency HTML5 + WebCrypto single-file audit bundle & SMT-LIB inspector (`POST /v1/audit/standalone-verifier`, MCP `legal_memory_export_verifier`, `clm export-verifier`), while `GET /v1/openapi.json` exposes the full OpenAPI 3.1.0 specification.
+- **Formal SMT-LIB 2.6 Theorem Prover Export Bridge (`SMTLibDeonticExporter`):** `export_smtlib()` (`continuous_legal_memory/reasoning/smtlib_exporter.py`) compiles active tenant norms and `DefeasibleProofTrace` derivations (`winning_canon`) into self-contained **SMT-LIB 2.6** (`QF_UFLIA`) specifications for external verification in **Z3** and **cvc5** (`POST /v1/audit/smtlib`, MCP `legal_memory_export_smtlib`, `clm export-smtlib`).
+- **Hardware/TEE Enclave Remote Attestation (`TEEAttestationProvider`) & Normative Drafting Co-Pilot (`NormativeDraftingCopilot`):** `generate_tee_quote()` binds the tenant's 256-bit `SparseMerkleTree` root and active signing key into **AWS Nitro Enclaves (`PCR0..PCR2`)** and **Intel TDX (`MRTD`/`RTMR0..1`)** quotes, while `propose_norm_repairs()` synthesizes and re-verifies conflict-free legislative/contractual repair options (`EXPLICIT_SUPERSESSION`, `LEX_SPECIALIS_CARVEOUT`, `TEMPORAL_PARTITION`, `DAG_CYCLE_PRUNING`).
+- **Global Multi-Jurisdictional Choice-of-Law Router (`EU`, `US`, `BR`, `UK`, `SG`, `JP`, `CH`) & Split-Conformal Prediction:** `ChoiceOfLawRouter` resolves Private International Law conflicts (*lois de police* overriding mandatory provisions across 7 sovereign regimes), `NormativeGraphExtractor` supports multilingual (`EN`, `PT`, `FR`, `DE`) deontic extraction, and `SplitConformalCalibrator` constructs finite-sample $(1 - \alpha)$ prediction sets (`result.conformal_set`).
+
+---
+
+## Scientific & Regulatory Foundations
+
+1. **Associative Knowledge Graph Memory:** Gutiérrez et al., *"HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models"*, **NeurIPS 2024** (`arXiv:2405.14831`).
+2. **Test-Time Surprise & Dual-Timescale Memory:** Behrouz et al., *"Titans: Learning to Memorize at Test Time"*, **Google Research**, 2024 (`arXiv:2501.00663`).
+3. **Legal RAG Reliability & Hallucination Risk:** Magesh et al., *"Hallucination-Free? Assessing the Reliability of Leading AI Legal Research Tools"*, **Stanford RegLab / Journal of Empirical Legal Studies**, 2024 (`arXiv:2405.20362`).
+4. **Legal Reasoning & Retrieval Benchmarks:** Guha et al., *"LegalBench"*, **NeurIPS 2023** (`arXiv:2308.11462`); Pipitone & Alami, *"LegalBench-RAG"*, 2024 (`arXiv:2408.10343`).
+5. **Conformal Prediction & Risk Control:** Vovk, Gammerman & Shafer (2005); Angelopoulos & Bates (2023); Angelopoulos et al., *"Conformal Risk Control"*, **ICLR 2024** (`arXiv:2208.02814`).
+6. **Regulatory & Cryptographic Standards:** **EU AI Act (Regulation 2024/1689)** Articles 12 & 14; **GDPR (Regulation 2016/679)** Article 17; **RFC 6962** (Certificate Transparency Merkle Hash Trees) & **RFC 8032** (Ed25519).
+
+---
+
+## Verification & Quality Gates
+
+```bash
+# Run the complete unit and integration test suite
+pytest -v
+
+# Run static type checking
+mypy continuous_legal_memory
+
+# Run Ruff linter across source, tests, and examples
+ruff check continuous_legal_memory tests examples
+```
+
+---
+
+## License & Acknowledgments
+
+Released under the [MIT License](LICENSE). See [`ROADMAP.md`](ROADMAP.md) for engineering governance and [`CITATION.cff`](CITATION.cff) for academic citation metadata.
+
+*Designed and architected by [Vinicius Caridá](https://github.com/vfcarida). Implementation and verification accelerated with AI-assisted engineering workflows.*

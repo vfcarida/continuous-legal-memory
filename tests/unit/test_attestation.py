@@ -1,5 +1,5 @@
 """
-Unit tests for Keyed-Hash Attestation, Canonicalization, and Key Management (CLM-T05).
+Unit tests for Keyed-Hash and Ed25519 Attestation, Canonicalization, and Key Management.
 """
 
 from datetime import datetime, timezone

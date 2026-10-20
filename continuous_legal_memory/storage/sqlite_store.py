@@ -111,13 +111,16 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     valid_from TEXT NOT NULL,
                     valid_to TEXT,
                     decay_factor REAL NOT NULL,
-                    tenant_id TEXT NOT NULL DEFAULT 'default'
+                    tenant_id TEXT NOT NULL DEFAULT 'default',
+                    transaction_time TEXT
                 )
             """)
             cursor.execute("PRAGMA table_info(semantic_nodes)")
             snode_cols = [row[1] for row in cursor.fetchall()]
             if "tenant_id" not in snode_cols:
                 cursor.execute("ALTER TABLE semantic_nodes ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+            if "transaction_time" not in snode_cols:
+                cursor.execute("ALTER TABLE semantic_nodes ADD COLUMN transaction_time TEXT")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_semantic_nodes_tenant ON semantic_nodes(tenant_id)")
 
             # 4. Semantic Graph Edges Table
@@ -151,6 +154,28 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                 CREATE TABLE IF NOT EXISTS orchestrator_meta (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
+                )
+            """)
+
+            # 7. Sparse Merkle Tree Active Leaves Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS merkle_leaves (
+                    rule_id TEXT PRIMARY KEY,
+                    leaf_hash_hex TEXT NOT NULL
+                )
+            """)
+
+            # 8. Append-Only Merkle Audit Log Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS merkle_audit_log (
+                    seq_no INTEGER PRIMARY KEY,
+                    operation TEXT NOT NULL,
+                    rule_id TEXT NOT NULL,
+                    smt_root_hash TEXT NOT NULL,
+                    prev_entry_hash TEXT NOT NULL,
+                    entry_hash TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL DEFAULT 'default'
                 )
             """)
             conn.commit()
@@ -213,6 +238,8 @@ class SqliteMemoryStore(BaseMemoryStorePort):
             cursor.execute("DELETE FROM semantic_edges")
             cursor.execute("DELETE FROM neural_state")
             cursor.execute("DELETE FROM orchestrator_meta")
+            cursor.execute("DELETE FROM merkle_leaves")
+            cursor.execute("DELETE FROM merkle_audit_log")
             conn.commit()
 
     # --- Full Orchestrator Persistence ---
@@ -234,10 +261,27 @@ class SqliteMemoryStore(BaseMemoryStorePort):
             cursor.execute("DELETE FROM semantic_edges")
             cursor.execute("DELETE FROM neural_state")
             cursor.execute("DELETE FROM orchestrator_meta")
+            cursor.execute("DELETE FROM merkle_leaves")
+            cursor.execute("DELETE FROM merkle_audit_log")
 
-            # 2. Metadata
+            # 2. Metadata (including CryptographicKeyRing & SplitConformalCalibrator state)
             cursor.execute("INSERT INTO orchestrator_meta VALUES (?, ?)", ("seed", str(orchestrator.seed)))
             cursor.execute("INSERT INTO orchestrator_meta VALUES (?, ?)", ("value_dim", str(orchestrator.value_dim)))
+            if getattr(orchestrator, "keyring", None) is not None:
+                cursor.execute(
+                    "INSERT INTO orchestrator_meta VALUES (?, ?)",
+                    ("keyring_json", json.dumps(orchestrator.keyring.to_dict())),
+                )
+                is_kr_attestor = "1" if getattr(orchestrator, "attestor", None) is orchestrator.keyring else "0"
+                cursor.execute(
+                    "INSERT INTO orchestrator_meta VALUES (?, ?)",
+                    ("attestor_is_keyring", is_kr_attestor),
+                )
+            if getattr(orchestrator, "conformal_calibrator", None) is not None:
+                cursor.execute(
+                    "INSERT INTO orchestrator_meta VALUES (?, ?)",
+                    ("conformal_calibrator_json", json.dumps(orchestrator.conformal_calibrator.to_dict())),
+                )
 
             # 3. Episodic Ledger
             ledger = orchestrator.episodic_memory.get_records()
@@ -275,8 +319,16 @@ class SqliteMemoryStore(BaseMemoryStorePort):
             # 5. Semantic Knowledge Graph
             for node in orchestrator.semantic_graph.nodes.values():
                 emb_blob = self._tensor_to_blob(node.embedding) if node.embedding is not None else None
+                node_tx = (
+                    node.transaction_time.isoformat()
+                    if getattr(node, "transaction_time", None) is not None
+                    else node.valid_from.isoformat()
+                )
                 cursor.execute("""
-                    INSERT INTO semantic_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO semantic_nodes (
+                        node_id, entity_type, label, description, embedding,
+                        valid_from, valid_to, decay_factor, tenant_id, transaction_time
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     node.node_id,
                     node.entity_type.value if hasattr(node.entity_type, "value") else str(node.entity_type),
@@ -287,6 +339,7 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     node.valid_to.isoformat() if node.valid_to else None,
                     node.decay_factor,
                     getattr(node, "tenant_id", "default"),
+                    node_tx,
                 ))
 
             for edge in orchestrator.semantic_graph.edges:
@@ -316,6 +369,34 @@ class SqliteMemoryStore(BaseMemoryStorePort):
             torch.save(mem.slow_net.state_dict(), slow_buf)
             cursor.execute("INSERT INTO neural_state VALUES (?, ?, ?)", ("slow_net", slow_buf.getvalue(), None))
 
+            # 7. Sparse Merkle Tree Leaves & Append-Only Audit Log
+            if hasattr(orchestrator, "merkle_tree"):
+                smt = orchestrator.merkle_tree
+                for rule_id, leaf_bytes in smt._active_rules.items():
+                    cursor.execute(
+                        "INSERT INTO merkle_leaves (rule_id, leaf_hash_hex) VALUES (?, ?)",
+                        (rule_id, leaf_bytes.hex()),
+                    )
+                for entry in smt.audit_log.entries:
+                    cursor.execute(
+                        """
+                        INSERT INTO merkle_audit_log (
+                            seq_no, operation, rule_id, smt_root_hash,
+                            prev_entry_hash, entry_hash, timestamp, tenant_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            entry.seq_no,
+                            entry.operation,
+                            entry.rule_id,
+                            entry.smt_root_hash,
+                            entry.prev_entry_hash,
+                            entry.entry_hash,
+                            entry.timestamp,
+                            entry.tenant_id,
+                        ),
+                    )
+
             conn.commit()
 
     def load_into_orchestrator(self, orchestrator: Any) -> None:
@@ -328,13 +409,25 @@ class SqliteMemoryStore(BaseMemoryStorePort):
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
-            # 1. Restore Metadata
+            # 1. Restore Metadata (including CryptographicKeyRing & SplitConformalCalibrator)
             cursor.execute("SELECT key, value FROM orchestrator_meta")
             meta_dict = dict(cursor.fetchall())
             if "seed" in meta_dict and meta_dict["seed"] != "None":
                 seed_val = int(meta_dict["seed"])
                 orchestrator.seed = seed_val
                 torch.manual_seed(seed_val)
+            if "keyring_json" in meta_dict:
+                from continuous_legal_memory.security.keyring import CryptographicKeyRing
+
+                orchestrator.keyring = CryptographicKeyRing.from_dict(json.loads(meta_dict["keyring_json"]))
+                if meta_dict.get("attestor_is_keyring") == "1":
+                    orchestrator.attestor = orchestrator.keyring
+            if "conformal_calibrator_json" in meta_dict:
+                from continuous_legal_memory.retrieval.conformal import SplitConformalCalibrator
+
+                orchestrator.conformal_calibrator = SplitConformalCalibrator.from_dict(
+                    json.loads(meta_dict["conformal_calibrator_json"])
+                )
 
             # 2. Restore Episodic Ledger
             cursor.execute("SELECT * FROM episodic_ledger ORDER BY seq ASC")
@@ -352,6 +445,12 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                 row_dict = dict(row)
                 emb = self._blob_to_tensor(row["embedding"]) if row["embedding"] else None
                 node_tenant = row_dict.get("tenant_id", "default")
+                raw_tx = row_dict.get("transaction_time")
+                node_tx = (
+                    datetime.fromisoformat(raw_tx)
+                    if raw_tx
+                    else datetime.fromisoformat(row["valid_from"])
+                )
                 node = GraphNode(
                     node_id=row["node_id"],
                     entity_type=EntityType(row["entity_type"]),
@@ -362,6 +461,7 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     valid_to=datetime.fromisoformat(row["valid_to"]) if row["valid_to"] else None,
                     decay_factor=row["decay_factor"],
                     tenant_id=node_tenant,
+                    transaction_time=node_tx,
                 )
                 orchestrator.semantic_graph.nodes[node.node_id] = node
 
@@ -419,6 +519,40 @@ class SqliteMemoryStore(BaseMemoryStorePort):
                     valid_to=rec.valid_to,
                     jurisdiction=rec.jurisdiction,
                 )
+
+            # 7. Restore Sparse Merkle Tree & Append-Only Merkle Audit Log
+            if hasattr(orchestrator, "merkle_tree"):
+                from continuous_legal_memory.security.merkle import (
+                    MerkleLogEntry,
+                    SparseMerkleTree,
+                    rule_id_to_key_int,
+                )
+
+                new_smt = SparseMerkleTree()
+                cursor.execute("SELECT rule_id, leaf_hash_hex FROM merkle_leaves")
+                for row in cursor.fetchall():
+                    r_id = str(row["rule_id"])
+                    l_bytes = bytes.fromhex(str(row["leaf_hash_hex"]))
+                    new_smt._active_rules[r_id] = l_bytes
+                    new_smt._set_leaf(rule_id_to_key_int(r_id), l_bytes)
+
+                cursor.execute("SELECT * FROM merkle_audit_log ORDER BY seq_no ASC")
+                restored_entries: list[MerkleLogEntry] = []
+                for row in cursor.fetchall():
+                    restored_entries.append(
+                        MerkleLogEntry(
+                            seq_no=int(row["seq_no"]),
+                            operation=str(row["operation"]),
+                            rule_id=str(row["rule_id"]),
+                            smt_root_hash=str(row["smt_root_hash"]),
+                            prev_entry_hash=str(row["prev_entry_hash"]),
+                            entry_hash=str(row["entry_hash"]),
+                            timestamp=str(row["timestamp"]),
+                            tenant_id=str(row["tenant_id"]),
+                        )
+                    )
+                new_smt.audit_log._entries = restored_entries
+                orchestrator.merkle_tree = new_smt
 
     # --- Serialization Helpers ---
 

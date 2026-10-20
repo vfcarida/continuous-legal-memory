@@ -5,8 +5,7 @@ Implements heuristic metric evaluators measuring Context Precision, Plan Adheren
 and Decision Vector Recall for continuous legal memory agents.
 
 Note:
-    These metric evaluators are standalone, rule- and token-based heuristic implementations.
-    Integration with formal DeepEval / Ragas evaluation frameworks is scheduled for CLM-T08.
+    These metric evaluators are standalone, deterministic rule- and token-based heuristic implementations.
 """
 
 
@@ -20,7 +19,6 @@ class AgenticLegalEvaluator:
         1. Context Precision: Heuristic token overlap between retrieved snippet and reference ground truth.
         2. Plan Adherence: Substring-matching verification across ordered procedural workflow steps.
         3. Decision Vector Recall: L1 distance verification between predicted and expected decision vectors.
-        (Formal DeepEval / Ragas suite integration planned in CLM-T08).
     """
 
     def evaluate_context_precision(self, query: str, retrieved_snippet: str, ground_truth: str) -> float:

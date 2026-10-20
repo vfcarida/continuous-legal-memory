@@ -79,14 +79,18 @@ def running_server() -> Generator[str, None, None]:
 
 
 def test_server_health_endpoint(running_server: str) -> None:
+    from continuous_legal_memory import __version__
+
     status, body, _ = _make_request(f"{running_server}/health")
     assert status == 200
     assert isinstance(body, dict)
     assert body["status"] == "healthy"
     assert body["service"] == "continuous-legal-memory"
-    assert body["version"] == "0.1.0"
+    assert body["version"] == __version__
     assert body["engine_mode"] == "structured"
     assert body["stored_records_total"] == 0
+    assert "merkle_root" in body
+
 
 
 def test_server_metrics_endpoint(running_server: str) -> None:

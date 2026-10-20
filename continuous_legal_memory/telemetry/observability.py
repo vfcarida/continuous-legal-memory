@@ -136,6 +136,74 @@ def export_prometheus_metrics(
         f"clm_hash_chain_length {chain_len}",
     ])
 
+    merkle_active = orchestrator.merkle_tree.active_count if hasattr(orchestrator, "merkle_tree") else 0
+    lines.extend([
+        "# HELP clm_merkle_active_leaves Total active leaves in the 256-bit Sparse Merkle Tree.",
+        "# TYPE clm_merkle_active_leaves gauge",
+        f"clm_merkle_active_leaves {merkle_active}",
+    ])
+
+    merkle_log_len = (
+        len(orchestrator.merkle_tree.audit_log.entries)
+        if hasattr(orchestrator, "merkle_tree") and hasattr(orchestrator.merkle_tree, "audit_log")
+        else 0
+    )
+    lines.extend([
+        "# HELP clm_merkle_audit_log_entries_total Total entries in the append-only Sparse Merkle audit log.",
+        "# TYPE clm_merkle_audit_log_entries_total gauge",
+        f"clm_merkle_audit_log_entries_total {merkle_log_len}",
+    ])
+
+    merkle_verified = (
+        1
+        if (
+            hasattr(orchestrator, "merkle_tree")
+            and hasattr(orchestrator.merkle_tree, "audit_log")
+            and orchestrator.merkle_tree.audit_log.verify_chain()
+        )
+        else 0
+    )
+    lines.extend([
+        "# HELP clm_merkle_chain_verified Cryptographic integrity status of the Sparse Merkle audit log (1=valid, 0=invalid).",
+        "# TYPE clm_merkle_chain_verified gauge",
+        f"clm_merkle_chain_verified {merkle_verified}",
+    ])
+
+    # CryptographicKeyRing lifecycle gauges (DORA / SOC 2)
+    status_counts = {"ACTIVE": 0, "RETIRED": 0, "REVOKED": 0}
+    if hasattr(orchestrator, "keyring") and hasattr(orchestrator.keyring, "list_keys"):
+        for kmeta in orchestrator.keyring.list_keys():
+            st = str(kmeta.get("status", "")).upper()
+            if st in status_counts:
+                status_counts[st] += 1
+    lines.extend([
+        "# HELP clm_keyring_keys_total Total managed signing keys in CryptographicKeyRing by lifecycle status.",
+        "# TYPE clm_keyring_keys_total gauge",
+    ])
+    for st_label, cnt in status_counts.items():
+        lines.append(f'clm_keyring_keys_total{{status="{st_label}"}} {cnt}')
+
+    # Split-Conformal Calibration gauges (EU AI Act Art. 14)
+    cal = getattr(orchestrator, "conformal_calibrator", None)
+    is_cal = 1 if (cal is not None and getattr(cal, "is_calibrated", False)) else 0
+    q_hat_val = float(getattr(cal, "_q_hat", 0.0) or 0.0) if is_cal else 0.0
+    lines.extend([
+        "# HELP clm_conformal_calibrated Whether SplitConformalCalibrator is calibrated (1=yes, 0=no).",
+        "# TYPE clm_conformal_calibrated gauge",
+        f"clm_conformal_calibrated {is_cal}",
+        "# HELP clm_conformal_q_hat Calibrated nonconformity quantile threshold q_hat.",
+        "# TYPE clm_conformal_q_hat gauge",
+        f"clm_conformal_q_hat {q_hat_val:.6f}",
+    ])
+
+    # Epistemic / Conformal Abstention counter
+    abstained_total = int(getattr(orchestrator, "abstained_predictions_count", 0))
+    lines.extend([
+        "# HELP clm_predictions_abstained_total Total predictions that abstained under epistemic or conformal guardrails.",
+        "# TYPE clm_predictions_abstained_total counter",
+        f"clm_predictions_abstained_total {abstained_total}",
+    ])
+
     # Telemetry execution metrics if logger present
     if telemetry_logger and telemetry_logger.metrics_history:
         op_counts: dict[str, int] = {}

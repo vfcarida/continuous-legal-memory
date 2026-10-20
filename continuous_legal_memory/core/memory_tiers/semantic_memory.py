@@ -50,6 +50,7 @@ class SemanticKnowledgeGraph:
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
         tenant_id: str = "default",
+        transaction_time: datetime | None = None,
     ) -> GraphNode:
         """
         Add an entity node to the knowledge graph.
@@ -63,6 +64,7 @@ class SemanticKnowledgeGraph:
             valid_from: Start timestamp of legal validity.
             valid_to: Expiry or invalidation timestamp.
             tenant_id: Tenant namespace identifier.
+            transaction_time: Optional ingestion transaction timestamp for bi-temporal auditing.
 
         Returns:
             The created `GraphNode`.
@@ -76,6 +78,7 @@ class SemanticKnowledgeGraph:
             valid_from=valid_from or datetime.now(timezone.utc),
             valid_to=valid_to,
             tenant_id=tenant_id,
+            transaction_time=transaction_time or datetime.now(timezone.utc),
         )
         self.nodes[node_id] = node
         return node
@@ -137,6 +140,39 @@ class SemanticKnowledgeGraph:
                 )
 
         edge_tenant = tenant_id or source_node.tenant_id
+
+        # Enforce acyclic invariant for normative hierarchy and dependency edges
+        if relation_type in (
+            RelationType.SUPERSEDES,
+            RelationType.DEPENDS_ON,
+            RelationType.DERIVES_FROM,
+        ):
+            if source_id == target_id:
+                raise MemoryContradictionError(
+                    f"Self-referential '{relation_type.value}' cycle prohibited on node '{source_id}'.",
+                    payload={"source_id": source_id, "target_id": target_id, "relation_type": relation_type},
+                )
+            # Check if source_id is reachable from target_id via existing edges of the same relation_type
+            visited_cycle: set[str] = set()
+            frontier = [target_id]
+            while frontier:
+                curr = frontier.pop()
+                if curr == source_id:
+                    raise MemoryContradictionError(
+                        f"Adding edge '{source_id}' -> '{target_id}' with relation '{relation_type.value}' "
+                        "would create a normative cycle.",
+                        payload={"source_id": source_id, "target_id": target_id, "relation_type": relation_type},
+                    )
+                if curr not in visited_cycle:
+                    visited_cycle.add(curr)
+                    for existing_edge in self.edges:
+                        if (
+                            existing_edge.source_id == curr
+                            and existing_edge.relation_type == relation_type
+                            and existing_edge.tenant_id == edge_tenant
+                        ):
+                            frontier.append(existing_edge.target_id)
+
         edge = GraphEdge(
             source_id=source_id,
             target_id=target_id,
@@ -185,6 +221,7 @@ class SemanticKnowledgeGraph:
         node_id: str,
         at_time: datetime | None = None,
         tenant_id: str | None = None,
+        as_of_transaction_time: datetime | None = None,
     ) -> list[GraphNode]:
         """
         Perform multi-hop traversal to retrieve all valid prerequisite nodes required by a given node,
@@ -194,6 +231,7 @@ class SemanticKnowledgeGraph:
             node_id: Target node ID.
             at_time: Datetime timestamp to evaluate validity.
             tenant_id: Optional tenant identifier to enforce tenant isolation.
+            as_of_transaction_time: Optional transaction-time cutoff for bi-temporal auditing.
 
         Returns:
             List of valid prerequisite `GraphNode` instances.
@@ -212,7 +250,9 @@ class SemanticKnowledgeGraph:
         if tenant_id is not None and target.tenant_id != tenant_id:
             raise KeyError(f"Node '{node_id}' does not belong to tenant '{tenant_id}'.")
 
-        if target.valid_to is not None and eval_time > target.valid_to:
+        if (target.valid_to is not None and eval_time > target.valid_to) or not target.is_known_as_of(
+            as_of_transaction_time
+        ):
             raise TemporalInvalidationError(f"Target node '{node_id}' is temporally invalid.")
 
         visited: set[str] = set()
@@ -233,6 +273,7 @@ class SemanticKnowledgeGraph:
                             dep_node is None
                             or dep_node.tenant_id != effective_tenant
                             or (dep_node.valid_to is not None and eval_time > dep_node.valid_to)
+                            or not dep_node.is_known_as_of(as_of_transaction_time)
                         ):
                             raise TemporalInvalidationError(
                                 f"Required prerequisite node '{dep_id}' for '{current_id}' is invalid or expired."
@@ -352,9 +393,12 @@ class SemanticKnowledgeGraph:
         convergence_tol: float = 1e-6,
         tenant_id: str | None = None,
         at_time: datetime | None = None,
+        as_of_transaction_time: datetime | None = None,
+        deontic_polarity: bool = True,
     ) -> dict[str, float]:
         """
-        Compute HippoRAG-style Personalized PageRank (PPR) over the legal entity graph.
+        Compute HippoRAG-style Personalized PageRank (PPR) over the legal entity graph
+        with Deontic Polarity-Aware Graph Diffusion.
 
         Rationale:
             Standard semantic search retrieves only nodes that directly match the query text.
@@ -363,6 +407,14 @@ class SemanticKnowledgeGraph:
             PPR diffuses activation mass from query seed nodes across semantic edges, discovering
             topologically and legally associated statutes while respecting tenant isolation.
 
+            When `deontic_polarity=True` (default):
+            1. `CONTRADICTS` edges are excluded from positive transition walks so activation mass
+               never leaks into logically contradictory norms.
+            2. `SUPERSEDES` edges (`new_norm -> old_norm`) reverse their diffusion flow so that
+               querying an outdated/superseded norm (`old_norm`) redirects teleport and walk mass
+               toward the active superseding norm (`new_norm`), while preventing active norms from
+               leaking mass backward into superseded norms.
+
         Args:
             seed_weights: Either a dict mapping node_id -> float relevance score, or a list of node_ids.
             damping: Teleportation probability balance alpha (typically 0.85).
@@ -370,6 +422,9 @@ class SemanticKnowledgeGraph:
             convergence_tol: L1 norm convergence threshold.
             tenant_id: Optional tenant identifier to enforce multi-tenant isolation.
             at_time: Datetime timestamp to filter out expired nodes. Defaults to current UTC time.
+            as_of_transaction_time: Optional transaction-time cutoff for bi-temporal replay.
+            deontic_polarity: Whether to enforce deontic edge polarity (`SUPERSEDES` redirection
+                              and `CONTRADICTS` blocking).
 
         Returns:
             Dictionary mapping node_id to its stationary PPR probability, sorted descending.
@@ -379,6 +434,7 @@ class SemanticKnowledgeGraph:
             n for n in self.nodes.values()
             if (tenant_id is None or n.tenant_id == tenant_id)
             and (n.valid_to is None or eval_time <= n.valid_to)
+            and n.is_known_as_of(as_of_transaction_time)
         ]
         if not valid_nodes:
             return {}
@@ -394,6 +450,39 @@ class SemanticKnowledgeGraph:
             seed_dict = {s: 1.0 for s in seed_weights if s in node_set}
         else:
             seed_dict = {s: float(w) for s, w in seed_weights.items() if s in node_set and w > 0}
+
+        # Deontic polarity seed redirection: if a seeded node is superseded by an active node in node_set,
+        # transfer `damping` fraction of its initial teleport mass to its superseding active node(s).
+        if deontic_polarity and seed_dict:
+            superseding_map: dict[str, list[tuple[str, float]]] = {}
+            for edge in self.edges:
+                if tenant_id is not None and edge.tenant_id != tenant_id:
+                    continue
+                if (
+                    edge.relation_type == RelationType.SUPERSEDES
+                    and edge.source_id in node_set
+                    and edge.target_id in node_set
+                ):
+                    superseding_map.setdefault(edge.target_id, []).append(
+                        (edge.source_id, max(0.01, float(edge.weight)))
+                    )
+            if superseding_map:
+                adjusted_seeds: dict[str, float] = {}
+                for nid, w in seed_dict.items():
+                    superseders = superseding_map.get(nid)
+                    if not superseders:
+                        adjusted_seeds[nid] = adjusted_seeds.get(nid, 0.0) + w
+                    else:
+                        retained = (1.0 - damping) * w
+                        if retained > 0:
+                            adjusted_seeds[nid] = adjusted_seeds.get(nid, 0.0) + retained
+                        total_sup_w = sum(sw for _, sw in superseders)
+                        transferred = damping * w
+                        for sup_id, sw in superseders:
+                            adjusted_seeds[sup_id] = (
+                                adjusted_seeds.get(sup_id, 0.0) + transferred * (sw / total_sup_w)
+                            )
+                seed_dict = adjusted_seeds
 
         total_seed_weight = sum(seed_dict.values())
         if total_seed_weight > 0:
@@ -411,9 +500,17 @@ class SemanticKnowledgeGraph:
             if tenant_id is not None and edge.tenant_id != tenant_id:
                 continue
             if edge.source_id in id_to_idx and edge.target_id in id_to_idx:
-                src_idx = id_to_idx[edge.source_id]
-                tgt_idx = id_to_idx[edge.target_id]
+                if deontic_polarity and edge.relation_type == RelationType.CONTRADICTS:
+                    # Block positive activation flow across contradictory norms
+                    continue
                 w = max(0.01, float(edge.weight))
+                if deontic_polarity and edge.relation_type == RelationType.SUPERSEDES:
+                    # Redirect random walk from superseded target_id -> superseding source_id
+                    src_idx = id_to_idx[edge.target_id]
+                    tgt_idx = id_to_idx[edge.source_id]
+                else:
+                    src_idx = id_to_idx[edge.source_id]
+                    tgt_idx = id_to_idx[edge.target_id]
                 adj[src_idx].append((tgt_idx, w))
                 out_weights[src_idx] += w
 
@@ -449,5 +546,6 @@ class SemanticKnowledgeGraph:
                 reverse=True,
             )
         )
+
 
 
